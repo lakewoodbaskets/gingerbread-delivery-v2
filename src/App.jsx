@@ -121,63 +121,85 @@ function getDriverName(driverValue) {
   return ''
 }
 
-function mapDeliveryFromRow(row) {
+function getDeliveryDate(order) {
+  return order?.deliveryDate || order?.delivery_date || new Date().toISOString().slice(0, 10)
+}
+
+function getCompletedAt(order) {
+  return order?.status === 'Delivered' ? order?.completedAt || order?.completed_at || new Date().toISOString() : null
+}
+
+function logSupabaseError(action, error) {
+  console.error(action, {
+    message: error?.message,
+    details: error?.details,
+    hint: error?.hint,
+    code: error?.code,
+  })
+}
+
+function mapDeliveryFromRow(row = {}) {
   return {
     dbId: row.id,
     id: row.order_no || row.id || '',
-    customer: row?.customer_name || row?.customer || '',
-    phone: row?.phone || '',
-    address: row?.address || '',
-    driver: getDriverName(row?.driver || row?.driver_name || row?.drivers),
-    time: row.delivery_time || row.time || 'Imported',
+    customer: row.customer_name || '',
+    phone: row.phone || '',
+    address: row.address || '',
+    driver: getDriverName(row.driver),
+    time: row.delivery_date || 'Imported',
+    deliveryDate: row.delivery_date || '',
     status: row.status || 'New',
     notes: row.notes || '',
     receiver: row.receiver_name || '',
-    failureReason: row.failure_reason || '',
-    proofPhoto: row.proof_photo || '',
-    signature: row.signature || '',
+    failureReason: row.failed_reason || '',
+    proofPhoto: row.proof_photo_url || '',
+    signature: row.signature_url || '',
+    completedAt: row.completed_at || '',
+    archivedAt: row.archived_at || '',
   }
 }
 
-function mapDeliveryToRow(order) {
+function mapDeliveryToRow(order = {}) {
   return {
-    order_no: order.id,
-    customer_name: order?.customer || order?.customer_name || '',
-    phone: order?.phone || '',
-    address: order?.address || '',
-    driver: getDriverName(order?.driver),
-    delivery_time: order.time,
-    status: order.status,
-    notes: order.notes,
-    receiver_name: order.receiver,
-    failure_reason: order.failureReason,
-    proof_photo: order.proofPhoto,
-    signature: order.signature,
+    delivery_date: getDeliveryDate(order),
+    order_no: order.id || order.order_no || '',
+    customer_name: order.customer || order.customer_name || '',
+    phone: order.phone || '',
+    address: order.address || '',
+    driver: getDriverName(order.driver),
+    status: order.status || 'New',
+    notes: order.notes || '',
+    receiver_name: order.status === 'Delivered' ? order.receiver || '' : '',
+    proof_photo_url: order.status === 'Delivered' ? order.proofPhoto || '' : '',
+    signature_url: order.status === 'Delivered' ? order.signature || '' : '',
+    failed_reason: order.status === 'Failed' ? order.failureReason || '' : '',
+    completed_at: getCompletedAt(order),
+    archived_at: order.archivedAt || order.archived_at || null,
   }
 }
 
-function mapDriverFromRow(row) {
+function mapDriverFromRow(row = {}) {
   return {
     dbId: row.id,
-    name: row?.name || row?.driver_name || '',
-    pin: row?.pin || '',
-    status: row?.status || 'Active',
-    route: row?.route || 'Available',
+    name: row.name || '',
+    pin: row.pin || '',
+    status: row.active === false ? 'Inactive' : 'Active',
+    active: row.active !== false,
+    route: 'Available',
   }
 }
 
-function mapDriverToRow(driver) {
+function mapDriverToRow(driver = {}) {
   return {
-    name: driver?.name || '',
-    pin: driver?.pin || '',
-    status: driver?.status || 'Active',
-    route: driver?.route || 'Available',
+    name: driver.name || '',
+    pin: driver.pin || '',
+    active: (driver.status || 'Active') === 'Active',
   }
 }
 
 async function loadDeliveries() {
   if (!supabase) throw new Error('Missing Supabase environment variables')
-      const { data, error } = await supabase
+  const { data, error } = await supabase
     .from('deliveries')
     .select('*')
     .order('created_at', { ascending: false })
@@ -188,7 +210,7 @@ async function loadDeliveries() {
 
 async function loadDrivers() {
   if (!supabase) throw new Error('Missing Supabase environment variables')
-      const { data, error } = await supabase
+  const { data, error } = await supabase
     .from('drivers')
     .select('*')
     .order('name', { ascending: true })
@@ -220,7 +242,7 @@ function App() {
         setOrders(deliveryRows)
         setDrivers(driverRows)
       } catch (error) {
-        console.error('Failed to load Supabase data:', error)
+        logSupabaseError('Failed to load Supabase data', error)
       }
     }
 
@@ -242,7 +264,7 @@ function App() {
       setSelectedOrder(null)
       setActiveView('orders')
     } catch (error) {
-      console.error('Failed to add order:', error)
+      logSupabaseError('Failed to add order', error)
       throw error
     }
   }
@@ -260,7 +282,7 @@ function App() {
       setStatus('All')
       setActiveView('orders')
     } catch (error) {
-      console.error('Failed to import orders:', error)
+      logSupabaseError('Failed to import orders', error)
       throw error
     }
   }
@@ -277,7 +299,7 @@ function App() {
       setOrders((currentOrders) => currentOrders.map((order) => order.dbId === savedOrder.dbId || order.id === selectedOrder.id ? savedOrder : order))
       setSelectedOrder(savedOrder)
     } catch (error) {
-      console.error('Failed to save order:', error)
+      logSupabaseError('Failed to save order', error)
       throw error
     }
   }
@@ -295,7 +317,7 @@ function App() {
       setOrders((currentOrders) => currentOrders.filter((order) => order.dbId !== selectedOrder.dbId && order.id !== selectedOrder.id))
       setSelectedOrder(null)
     } catch (error) {
-      console.error('Failed to delete order:', error)
+      logSupabaseError('Failed to delete order', error)
       throw error
     }
   }
@@ -312,14 +334,14 @@ function App() {
       if (error) throw error
       setDrivers((currentDrivers) => [...currentDrivers, mapDriverFromRow(data)])
     } catch (error) {
-      console.error('Failed to add driver:', error)
+      logSupabaseError('Failed to add driver', error)
       throw error
     }
   }
 
   async function handleUpdateDriver(originalName, updatedDriver) {
     if (!supabase) {
-      console.error('Failed to update driver:', new Error('Missing Supabase environment variables'))
+      logSupabaseError('Failed to update driver', new Error('Missing Supabase environment variables'))
       return
     }
     const existingDriver = safeDrivers.find((driver) => (driver?.name || '') === originalName)
@@ -334,7 +356,7 @@ function App() {
       setDrivers((currentDrivers) => currentDrivers.map((driver) => driver?.dbId === savedDriver?.dbId || (driver?.name || '') === originalName ? savedDriver : driver))
       setOrders((currentOrders) => currentOrders.map((order) => getDriverName(order.driver) === originalName ? { ...order, driver: getDriverName(savedDriver) } : order))
     } catch (error) {
-      console.error('Failed to update driver:', error)
+      logSupabaseError('Failed to update driver', error)
       throw error
     }
   }
@@ -342,7 +364,7 @@ function App() {
   async function handleDeleteDriver(driverName) {
     if (!window.confirm('Delete this driver?')) return
     if (!supabase) {
-      console.error('Failed to delete driver:', new Error('Missing Supabase environment variables'))
+      logSupabaseError('Failed to delete driver', new Error('Missing Supabase environment variables'))
       return
     }
     const existingDriver = safeDrivers.find((driver) => (driver?.name || '') === driverName)
@@ -356,7 +378,7 @@ function App() {
       setDrivers((currentDrivers) => currentDrivers.filter((driver) => driver?.dbId !== existingDriver?.dbId && (driver?.name || '') !== driverName))
       setOrders((currentOrders) => currentOrders.map((order) => getDriverName(order.driver) === driverName ? { ...order, driver: '' } : order))
     } catch (error) {
-      console.error('Failed to delete driver:', error)
+      logSupabaseError('Failed to delete driver', error)
       throw error
     }
   }
