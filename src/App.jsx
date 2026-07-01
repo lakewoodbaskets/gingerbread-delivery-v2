@@ -119,10 +119,10 @@ function mapDeliveryFromRow(row) {
   return {
     dbId: row.id,
     id: row.order_no || row.id || '',
-    customer: row.customer_name || '',
-    phone: row.phone || '',
-    address: row.address || '',
-    driver: row.driver || '',
+    customer: row?.customer_name || row?.customer || '',
+    phone: row?.phone || '',
+    address: row?.address || '',
+    driver: row?.driver || row?.driver_name || '',
     time: row.delivery_time || row.time || 'Imported',
     status: row.status || 'New',
     notes: row.notes || '',
@@ -136,10 +136,10 @@ function mapDeliveryFromRow(row) {
 function mapDeliveryToRow(order) {
   return {
     order_no: order.id,
-    customer_name: order.customer,
-    phone: order.phone,
-    address: order.address,
-    driver: order.driver,
+    customer_name: order?.customer || order?.customer_name || '',
+    phone: order?.phone || '',
+    address: order?.address || '',
+    driver: order?.driver || '',
     delivery_time: order.time,
     status: order.status,
     notes: order.notes,
@@ -153,19 +153,19 @@ function mapDeliveryToRow(order) {
 function mapDriverFromRow(row) {
   return {
     dbId: row.id,
-    name: row.name || '',
-    pin: row.pin || '',
-    status: row.status || 'Active',
-    route: row.route || 'Available',
+    name: row?.name || row?.driver_name || '',
+    pin: row?.pin || '',
+    status: row?.status || 'Active',
+    route: row?.route || 'Available',
   }
 }
 
 function mapDriverToRow(driver) {
   return {
-    name: driver.name,
-    pin: driver.pin,
-    status: driver.status,
-    route: driver.route,
+    name: driver?.name || '',
+    pin: driver?.pin || '',
+    status: driver?.status || 'Active',
+    route: driver?.route || 'Available',
   }
 }
 
@@ -199,6 +199,8 @@ function App() {
   const [status, setStatus] = useState('All')
   const [sort, setSort] = useState('Newest First')
   const [selectedOrder, setSelectedOrder] = useState(null)
+
+  const safeDrivers = Array.isArray(drivers) ? drivers.filter(Boolean) : []
 
   useEffect(() => {
     async function loadData() {
@@ -314,7 +316,7 @@ function App() {
       console.error('Failed to update driver:', new Error('Missing Supabase environment variables'))
       return
     }
-    const existingDriver = drivers.find((driver) => driver.name === originalName)
+    const existingDriver = safeDrivers.find((driver) => (driver?.name || '') === originalName)
 
     try {
       let query = supabase.from('drivers').update(mapDriverToRow(updatedDriver))
@@ -323,8 +325,8 @@ function App() {
 
       if (error) throw error
       const savedDriver = mapDriverFromRow(data)
-      setDrivers((currentDrivers) => currentDrivers.map((driver) => driver.dbId === savedDriver.dbId || driver.name === originalName ? savedDriver : driver))
-      setOrders((currentOrders) => currentOrders.map((order) => order.driver === originalName ? { ...order, driver: savedDriver.name } : order))
+      setDrivers((currentDrivers) => currentDrivers.map((driver) => driver?.dbId === savedDriver.dbId || (driver?.name || '') === originalName ? savedDriver : driver))
+      setOrders((currentOrders) => currentOrders.map((order) => order.driver === originalName ? { ...order, driver: savedDriver?.name || '' } : order))
     } catch (error) {
       console.error('Failed to update driver:', error)
       throw error
@@ -337,7 +339,7 @@ function App() {
       console.error('Failed to delete driver:', new Error('Missing Supabase environment variables'))
       return
     }
-    const existingDriver = drivers.find((driver) => driver.name === driverName)
+    const existingDriver = safeDrivers.find((driver) => (driver?.name || '') === driverName)
 
     try {
       let query = supabase.from('drivers').delete()
@@ -345,7 +347,7 @@ function App() {
       const { error } = await query
 
       if (error) throw error
-      setDrivers((currentDrivers) => currentDrivers.filter((driver) => driver.dbId !== existingDriver?.dbId && driver.name !== driverName))
+      setDrivers((currentDrivers) => currentDrivers.filter((driver) => driver.dbId !== existingDriver?.dbId && (driver?.name || '') !== driverName))
       setOrders((currentOrders) => currentOrders.map((order) => order.driver === driverName ? { ...order, driver: '' } : order))
     } catch (error) {
       console.error('Failed to delete driver:', error)
@@ -354,7 +356,7 @@ function App() {
   }
 
   async function handleToggleDriver(driverName) {
-    const existingDriver = drivers.find((driver) => driver.name === driverName)
+    const existingDriver = safeDrivers.find((driver) => (driver?.name || '') === driverName)
     if (!existingDriver) return
 
     await handleUpdateDriver(driverName, {
@@ -407,11 +409,11 @@ function App() {
             setSelectedOrder={setSelectedOrder}
           />
         )}
-        {activeView === 'add' && <AddOrder drivers={drivers} onAddOrder={handleAddOrder} nextOrderNumber={getNextOrderNumber(orders)} />}
+        {activeView === 'add' && <AddOrder drivers={safeDrivers} onAddOrder={handleAddOrder} nextOrderNumber={getNextOrderNumber(orders)} />}
         {activeView === 'upload' && <UploadOrders onAddOrders={handleAddOrders} nextOrderNumber={getNextOrderNumber(orders)} />}
         {activeView === 'drivers' && (
           <Drivers
-            drivers={drivers}
+            drivers={safeDrivers}
             onAddDriver={handleAddDriver}
             onUpdateDriver={handleUpdateDriver}
             onDeleteDriver={handleDeleteDriver}
@@ -425,7 +427,7 @@ function App() {
         <div className="drawer-layer" aria-label="Order details panel">
           <button className="drawer-scrim" type="button" aria-label="Close details backdrop" onClick={() => setSelectedOrder(null)} />
           <OrderDrawer
-            drivers={drivers}
+            drivers={safeDrivers}
             order={selectedOrder}
             onClose={() => setSelectedOrder(null)}
             onSave={handleSaveOrder}
@@ -627,8 +629,8 @@ function OrderDrawer({ drivers = [], order, onClose, onSave, onDelete }) {
           <label>Customer Name<input value={draft.customer} onChange={(event) => updateDraft('customer', event.target.value)} /></label>
           <label>Phone<input value={draft.phone} onChange={(event) => updateDraft('phone', event.target.value)} /></label>
           <label>Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} /></label>
-          <label>Driver<select value={draft.driver} onChange={(event) => updateDraft('driver', event.target.value)}>{availableDrivers.map((driver) => <option key={driver.name}>{driver.name}</option>)}</select></label>
-          <label>Status<select value={draft.status} onChange={(event) => updateDraft('status', event.target.value)}>{editableStatusOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
+          <label>Driver<select value={draft.driver} onChange={(event) => updateDraft('driver', event.target.value)}>{availableDrivers.map((driver) => <option key={driver?.name || 'unnamed-driver'}>{driver?.name || ''}</option>)}</select></label>
+          <label>Status<select value={draft?.status || 'Active'} onChange={(event) => updateDraft('status', event.target.value)}>{editableStatusOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
           <label>Notes<textarea value={draft.notes} onChange={(event) => updateDraft('notes', event.target.value)} rows="4" /></label>
           {showReceiver && <label>Receiver Name<input required value={draft.receiver} onChange={(event) => updateDraft('receiver', event.target.value)} /></label>}
           {showProofFields && (
@@ -673,13 +675,14 @@ function Detail({ label, value }) {
   )
 }
 
-function AddOrder({ drivers, onAddOrder, nextOrderNumber }) {
+function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
+  const availableDrivers = Array.isArray(drivers) ? drivers.filter(Boolean) : []
   const emptyOrder = {
     id: nextOrderNumber,
     customer: '',
     phone: '',
     address: '',
-    driver: drivers[0].name,
+    driver: availableDrivers[0]?.name || '',
     time: 'Today, 2:00 PM',
     status: 'New',
     notes: '',
@@ -717,7 +720,7 @@ function AddOrder({ drivers, onAddOrder, nextOrderNumber }) {
           <label>Customer name<input value={draft.customer} onChange={(event) => updateDraft('customer', event.target.value)} placeholder="Customer name" /></label>
           <label>Phone<input value={draft.phone} onChange={(event) => updateDraft('phone', event.target.value)} placeholder="Phone number" /></label>
           <label className="wide">Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} placeholder="Street, city, state" /></label>
-          <label>Driver<select value={draft.driver} onChange={(event) => updateDraft('driver', event.target.value)}>{drivers.map((driver) => <option key={driver.name}>{driver.name}</option>)}</select></label>
+          <label>Driver<select value={draft.driver} onChange={(event) => updateDraft('driver', event.target.value)}>{availableDrivers.map((driver) => <option key={driver?.name || 'unnamed-driver'}>{driver?.name || ''}</option>)}</select></label>
           <label>Delivery time<input value={draft.time} onChange={(event) => updateDraft('time', event.target.value)} placeholder="Today, 2:00 PM" /></label>
           <label>Status<select value={draft.status} onChange={(event) => updateDraft('status', event.target.value)}>{editableStatusOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
           <label className="wide">Notes<textarea value={draft.notes} onChange={(event) => updateDraft('notes', event.target.value)} placeholder="Delivery instructions" rows="4" /></label>
@@ -801,7 +804,8 @@ function UploadOrders({ onAddOrders, nextOrderNumber }) {
   )
 }
 
-function Drivers({ drivers, onAddDriver, onUpdateDriver, onDeleteDriver, onToggleDriver }) {
+function Drivers({ drivers = [], onAddDriver, onUpdateDriver, onDeleteDriver, onToggleDriver }) {
+  const availableDrivers = Array.isArray(drivers) ? drivers.filter(Boolean) : []
   const emptyDriver = { name: '', pin: '', status: 'Active', route: 'Available' }
   const [draft, setDraft] = useState(emptyDriver)
   const [editingName, setEditingName] = useState('')
@@ -818,13 +822,13 @@ function Drivers({ drivers, onAddDriver, onUpdateDriver, onDeleteDriver, onToggl
   async function handleSubmit(event) {
     event.preventDefault()
     const driver = {
-      name: draft.name.trim(),
-      pin: draft.pin.trim(),
-      status: draft.status,
-      route: draft.route.trim() || 'Available',
+      name: (draft?.name || '').trim(),
+      pin: (draft?.pin || '').trim(),
+      status: draft?.status || 'Active',
+      route: (draft?.route || '').trim() || 'Available',
     }
 
-    if (!driver.name || !driver.pin) return
+    if (!driver?.name || !driver?.pin) return
 
     if (editingName) await onUpdateDriver(editingName, driver)
     else await onAddDriver(driver)
@@ -832,8 +836,9 @@ function Drivers({ drivers, onAddDriver, onUpdateDriver, onDeleteDriver, onToggl
   }
 
   function handleEdit(driver) {
-    setDraft(driver)
-    setEditingName(driver.name)
+    const selectedDriver = driver || emptyDriver
+    setDraft(selectedDriver)
+    setEditingName(selectedDriver?.name || '')
   }
 
   return (
@@ -841,10 +846,10 @@ function Drivers({ drivers, onAddDriver, onUpdateDriver, onDeleteDriver, onToggl
       <PageHeader eyebrow="Team" title="Drivers" subtitle="Driver cards and PIN placeholders" />
       <form className="form-card driver-form" onSubmit={handleSubmit}>
         <div className="form-grid">
-          <label>Name<input value={draft.name} onChange={(event) => updateDraft('name', event.target.value)} placeholder="Driver name" /></label>
-          <label>PIN<input value={draft.pin} onChange={(event) => updateDraft('pin', event.target.value)} placeholder="Driver PIN" /></label>
+          <label>Name<input value={draft?.name || ''} onChange={(event) => updateDraft('name', event.target.value)} placeholder="Driver name" /></label>
+          <label>PIN<input value={draft?.pin || ''} onChange={(event) => updateDraft('pin', event.target.value)} placeholder="Driver PIN" /></label>
           <label>Status<select value={draft.status} onChange={(event) => updateDraft('status', event.target.value)}><option>Active</option><option>Inactive</option></select></label>
-          <label>Route<input value={draft.route} onChange={(event) => updateDraft('route', event.target.value)} placeholder="Route or area" /></label>
+          <label>Route<input value={draft?.route || ''} onChange={(event) => updateDraft('route', event.target.value)} placeholder="Route or area" /></label>
         </div>
         <div className="form-actions">
           <button className="secondary-action" type="button" onClick={resetForm}>Clear</button>
@@ -852,21 +857,21 @@ function Drivers({ drivers, onAddDriver, onUpdateDriver, onDeleteDriver, onToggl
         </div>
       </form>
       <div className="driver-grid">
-        {drivers.map((driver) => (
-          <article className="driver-card" key={driver.name}>
-            <div className="driver-avatar">{driver.name.split(' ').map((part) => part[0]).join('')}</div>
+        {availableDrivers.map((driver, index) => (
+          <article className="driver-card" key={driver?.dbId || driver?.name || index}>
+            <div className="driver-avatar">{getDriverInitials(driver)}</div>
             <div>
-              <h2>{driver.name}</h2>
-              <p>{driver.route}</p>
+              <h2>{driver?.name || 'Unnamed Driver'}</h2>
+              <p>{driver?.route || 'Available'}</p>
             </div>
             <div className="driver-footer">
-              <span>{driver.pin}</span>
-              <strong className={driver.status === 'Active' ? 'active-status' : 'inactive-status'}>{driver.status}</strong>
+              <span>{driver?.pin || 'No PIN'}</span>
+              <strong className={(driver?.status || 'Active') === 'Active' ? 'active-status' : 'inactive-status'}>{driver?.status || 'Active'}</strong>
             </div>
             <div className="driver-actions">
-              <button className="secondary-action" type="button" onClick={() => handleEdit(driver)}>Edit</button>
-              <button className="secondary-action" type="button" onClick={() => onToggleDriver(driver.name)}>{driver.status === 'Active' ? 'Set Inactive' : 'Set Active'}</button>
-              <button className="danger-action" type="button" onClick={() => onDeleteDriver(driver.name)}>Delete</button>
+              <button className="secondary-action" type="button" onClick={() => handleEdit(driver || emptyDriver)}>Edit</button>
+              <button className="secondary-action" type="button" onClick={() => onToggleDriver(driver?.name || '')}>{(driver?.status || 'Active') === 'Active' ? 'Set Inactive' : 'Set Active'}</button>
+              <button className="danger-action" type="button" onClick={() => onDeleteDriver(driver?.name || '')}>Delete</button>
             </div>
           </article>
         ))}
@@ -900,6 +905,15 @@ function Settings() {
   )
 }
 
+function getDriverInitials(driver) {
+  const name = driver?.name || ''
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join('') || 'DR'
+}
+
 function parseOrdersCsv(csvText, fallbackOrderNumber) {
   const rows = parseCsvRows(csvText).filter((row) => row.some((cell) => cell.trim()))
 
@@ -924,7 +938,7 @@ function parseOrdersCsv(csvText, fallbackOrderNumber) {
       customer: cellValue(row, headerIndex.customer_name),
       phone: cellValue(row, headerIndex.phone),
       address: cellValue(row, headerIndex.address),
-      driver: cellValue(row, headerIndex.driver) || drivers[0].name,
+      driver: cellValue(row, headerIndex.driver),
       time: 'Imported',
       status: 'New',
       notes: cellValue(row, headerIndex.notes),
