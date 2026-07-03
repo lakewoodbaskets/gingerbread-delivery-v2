@@ -208,36 +208,52 @@ function mapDriverToRow(driver = {}) {
 }
 
 
-function mapSettingsRows(rows = []) {
-  return rows.reduce((settings, row) => {
-    if (!row?.key) return settings
-    return { ...settings, [row.key]: row.value }
-  }, { ...defaultSettings })
+function mapSettingsFromRow(row = {}) {
+  return {
+    id: row.id || null,
+    companyName: row.company_name || defaultSettings.companyName,
+    officePin: row.office_pin || defaultSettings.officePin,
+    companyLogoName: row.logo_url || defaultSettings.companyLogoName,
+    archiveDeliveredAfterDays: row.archive_after_days ?? defaultSettings.archiveDeliveredAfterDays,
+    deleteArchivedAfterDays: row.delete_after_days ?? defaultSettings.deleteArchivedAfterDays,
+  }
 }
 
-function settingsToRows(settings) {
-  return Object.entries(settings).map(([key, value]) => ({ key, value }))
+function mapSettingsToRow(settings) {
+  return {
+    id: settings.id || 1,
+    company_name: settings.companyName || defaultSettings.companyName,
+    office_pin: String(settings.officePin || defaultSettings.officePin),
+    archive_after_days: Number(settings.archiveDeliveredAfterDays) || defaultSettings.archiveDeliveredAfterDays,
+    delete_after_days: Number(settings.deleteArchivedAfterDays) || defaultSettings.deleteArchivedAfterDays,
+    logo_url: settings.companyLogoName || '',
+    updated_at: new Date().toISOString(),
+  }
 }
 
 async function loadSettings() {
   if (!supabase) throw new Error('Missing Supabase environment variables')
   const { data, error } = await supabase
-    .from('app_settings')
-    .select('key,value')
+    .from('settings')
+    .select('*')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
 
   if (error) throw error
-  return mapSettingsRows(data || [])
+  return mapSettingsFromRow(data || { id: 1 })
 }
 
 async function saveSettings(settings) {
   if (!supabase) throw new Error('Missing Supabase environment variables')
   const { data, error } = await supabase
-    .from('app_settings')
-    .upsert(settingsToRows(settings), { onConflict: 'key' })
-    .select('key,value')
+    .from('settings')
+    .upsert(mapSettingsToRow(settings), { onConflict: 'id' })
+    .select('*')
+    .single()
 
   if (error) throw error
-  return mapSettingsRows(data || [])
+  return mapSettingsFromRow(data)
 }
 
 async function loadDeliveries() {
@@ -1110,6 +1126,7 @@ function Settings({ settings, onSaveSettings }) {
   async function handleSubmit(event) {
     event.preventDefault()
     const nextSettings = {
+      id: draft.id || 1,
       companyName: draft.companyName || 'Gingerbread Delivery',
       officePin: String(draft.officePin || '').trim(),
       companyLogoName: draft.companyLogoName || '',
