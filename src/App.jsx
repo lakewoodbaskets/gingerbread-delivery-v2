@@ -443,6 +443,14 @@ function App() {
       return acc
     }, {})
   }, [counts, driverOrders, isDriverSession])
+  const handleLogout = () => {
+    setSession(null)
+    setSelectedOrder(null)
+    setActiveView('orders')
+    setQuery('')
+    setStatus('All')
+  }
+
   const showDrawer = selectedOrder && (activeView === 'orders' || activeView === 'history')
 
   if (!session) {
@@ -451,8 +459,12 @@ function App() {
 
   return (
     <div className={isDriverSession ? 'app-frame driver-app-frame' : 'app-frame'}>
-      {!isDriverSession && <Sidebar activeView={activeView} setActiveView={setActiveView} />}
+      {!isDriverSession && <Sidebar activeView={activeView} setActiveView={setActiveView} onLogout={handleLogout} />}
       <main className="main-shell">
+        <div className="driver-session-bar">
+          <span>{isDriverSession ? getDriverName(session.driver) : 'Office'}</span>
+          <button className="secondary-action" type="button" onClick={handleLogout}>Logout</button>
+        </div>
         {activeView === 'orders' && (
           <OrdersDashboard
             query={query}
@@ -557,7 +569,7 @@ function LoginScreen({ drivers, onLogin }) {
   )
 }
 
-function Sidebar({ activeView, setActiveView }) {
+function Sidebar({ activeView, setActiveView, onLogout }) {
   return (
     <aside className="sidebar">
       <div className="brand-block">
@@ -580,11 +592,7 @@ function Sidebar({ activeView, setActiveView }) {
           </button>
         ))}
       </nav>
-      <div className="sidebar-card">
-        <span>Today</span>
-        <strong>18 stops</strong>
-        <p>Routes are staged for dispatch review.</p>
-      </div>
+      <button className="secondary-action logout-button" type="button" onClick={onLogout}>Logout</button>
     </aside>
   )
 }
@@ -694,11 +702,15 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
   const [saveMessage, setSaveMessage] = useState('')
   const [validationMessage, setValidationMessage] = useState('')
   const isDriverMode = mode === 'driver'
+  const canDriverEdit = !isDriverMode || order?.status === 'Out for Delivery'
+  const driverStatusOptions = ['Out for Delivery', 'Delivered', 'Failed']
+  const statusChoices = isDriverMode ? driverStatusOptions : editableStatusOptions
   const showProofFields = draft.status === 'Delivered'
   const showReceiver = draft.status === 'Delivered'
   const showFailureReason = draft.status === 'Failed'
 
   function updateDraft(field, value) {
+    if (isDriverMode && !canDriverEdit) return
     setValidationMessage('')
     setSaveMessage('')
     setDraft((currentDraft) => ({ ...currentDraft, [field]: value }))
@@ -706,6 +718,16 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
 
   async function handleSubmit(event) {
     event.preventDefault()
+
+    if (isDriverMode && !canDriverEdit) {
+      setValidationMessage('This delivery can no longer be changed.')
+      return
+    }
+
+    if (isDriverMode && order?.status !== 'Out for Delivery') {
+      setValidationMessage('Drivers can only update orders that are Out for Delivery.')
+      return
+    }
 
     if (draft.status === 'Delivered' && (!draft.receiver.trim() || !draft.proofPhoto.trim() || !draft.signature.trim())) {
       setValidationMessage('Receiver name, proof photo, and signature are required for delivered orders.')
@@ -719,6 +741,12 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
 
     await onSave({
       ...draft,
+      id: isDriverMode ? order.id : draft.id,
+      customer: isDriverMode ? order.customer : draft.customer,
+      phone: isDriverMode ? order.phone : draft.phone,
+      address: isDriverMode ? order.address : draft.address,
+      driver: isDriverMode ? order.driver : draft.driver,
+      notes: isDriverMode ? order.notes : draft.notes,
       receiver: showReceiver ? draft.receiver : '',
       failureReason: showFailureReason ? draft.failureReason : '',
       proofPhoto: showProofFields ? draft.proofPhoto : '',
@@ -737,24 +765,24 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
     <aside className="detail-drawer" aria-label="Edit order">
       <div className="drawer-header">
         <button className="drawer-close" type="button" aria-label="Close order details" onClick={onClose}>X</button>
-        <span>Edit order</span>
+        <span>{isDriverMode ? 'Delivery update' : 'Edit order'}</span>
         <h2>{draft.id || 'New order'}</h2>
         <p>{draft.customer || 'Customer details'}</p>
       </div>
       <form className="drawer-form" onSubmit={handleSubmit}>
         <div className="detail-list edit-list">
-          <label>Order Number<input value={draft.id} onChange={(event) => updateDraft('id', event.target.value)} /></label>
-          <label>Customer Name<input value={draft.customer} onChange={(event) => updateDraft('customer', event.target.value)} /></label>
-          <label>Phone<input value={draft.phone} onChange={(event) => updateDraft('phone', event.target.value)} /></label>
-          <label>Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} /></label>
-          <label>Driver<select value={getDriverName(draft.driver)} onChange={(event) => updateDraft('driver', event.target.value)}>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index}>{getDriverName(driver)}</option>)}</select></label>
-          <label>Status<select value={draft?.status || 'Active'} onChange={(event) => updateDraft('status', event.target.value)}>{editableStatusOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
+          {!isDriverMode && <label>Order Number<input value={draft.id} onChange={(event) => updateDraft('id', event.target.value)} /></label>}
+          {!isDriverMode && <label>Customer Name<input value={draft.customer} onChange={(event) => updateDraft('customer', event.target.value)} /></label>}
+          {!isDriverMode && <label>Phone<input value={draft.phone} onChange={(event) => updateDraft('phone', event.target.value)} /></label>}
+          {!isDriverMode && <label>Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} /></label>}
+          {!isDriverMode && <label>Driver<select value={getDriverName(draft.driver)} onChange={(event) => updateDraft('driver', event.target.value)}>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index}>{getDriverName(driver)}</option>)}</select></label>}
+          <label>Status<select disabled={isDriverMode && !canDriverEdit} value={draft.status} onChange={(event) => updateDraft('status', event.target.value)}>{statusChoices.map((option) => <option key={option}>{option}</option>)}</select></label>
           {!isDriverMode && <label>Notes<textarea value={draft.notes} onChange={(event) => updateDraft('notes', event.target.value)} rows="4" /></label>}
-          {showReceiver && <label>Receiver Name<input required value={draft.receiver} onChange={(event) => updateDraft('receiver', event.target.value)} /></label>}
+          {showReceiver && <label>Receiver Name<input disabled={isDriverMode && !canDriverEdit} required value={draft.receiver} onChange={(event) => updateDraft('receiver', event.target.value)} /></label>}
           {showProofFields && (
             <div className="delivery-proof-field">
               <span>Proof Photo</span>
-              <button className="proof-upload-button" type="button" onClick={() => updateDraft('proofPhoto', 'Proof photo attached')}>
+              <button disabled={isDriverMode && !canDriverEdit} className="proof-upload-button" type="button" onClick={() => updateDraft('proofPhoto', 'Proof photo attached')}>
                 📷 Take / Upload Proof Photo
               </button>
               {draft.proofPhoto && <p>{draft.proofPhoto}</p>}
@@ -763,18 +791,19 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
           {showProofFields && (
             <div className="signature-field">
               <span>Signature Pad</span>
-              <button className="signature-pad" type="button" onClick={() => updateDraft('signature', 'Receiver signature captured')}>
+              <button disabled={isDriverMode && !canDriverEdit} className="signature-pad" type="button" onClick={() => updateDraft('signature', 'Receiver signature captured')}>
                 <strong>{draft.signature || 'Receiver signature'}</strong>
                 <small>{draft.signature ? 'Signature captured' : 'Tap to capture signature'}</small>
               </button>
             </div>
           )}
-          {showFailureReason && <label>Failure Reason<textarea required value={draft.failureReason} onChange={(event) => updateDraft('failureReason', event.target.value)} rows="3" /></label>}
+          {showFailureReason && <label>Failure Reason<textarea disabled={isDriverMode && !canDriverEdit} required value={draft.failureReason} onChange={(event) => updateDraft('failureReason', event.target.value)} rows="3" /></label>}
         </div>
+        {isDriverMode && !canDriverEdit && <p className="drawer-message error-message">This delivery is read-only for drivers.</p>}
         {validationMessage && <p className="drawer-message error-message">{validationMessage}</p>}
         {saveMessage && <p className="drawer-message saved-message">{saveMessage}</p>}
         <div className="drawer-actions">
-          <button className="primary-action" type="submit">Save Changes</button>
+          {canDriverEdit && <button className="primary-action" type="submit">Save Changes</button>}
           {!isDriverMode && onDelete && <button className="danger-action" type="button" onClick={onDelete}>Delete Order</button>}
           <button className="secondary-action" type="button" onClick={handleOpenMaps}>Open Maps</button>
           <button className="secondary-action" type="button" onClick={onClose}>Close</button>
