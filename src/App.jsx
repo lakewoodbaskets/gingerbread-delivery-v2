@@ -229,6 +229,7 @@ function App() {
   const [status, setStatus] = useState('All')
   const [sort, setSort] = useState('Newest First')
   const [selectedOrder, setSelectedOrder] = useState(null)
+  const [session, setSession] = useState(null)
 
   const safeDrivers = Array.isArray(drivers) ? drivers.filter(Boolean) : []
 
@@ -427,11 +428,30 @@ function App() {
       })
   }, [orders, query, status, sort])
 
+  const isDriverSession = session?.role === 'driver'
+  const driverOrders = useMemo(() => {
+    if (!isDriverSession) return visibleOrders
+    const driverName = getDriverName(session.driver)
+    return visibleOrders.filter((order) => getDriverName(order.driver) === driverName)
+  }, [isDriverSession, session, visibleOrders])
+
+  const dashboardOrders = isDriverSession ? driverOrders : visibleOrders
+  const dashboardCounts = useMemo(() => {
+    if (!isDriverSession) return counts
+    return statusOptions.reduce((acc, option) => {
+      acc[option] = option === 'All' ? driverOrders.length : driverOrders.filter((order) => order.status === option).length
+      return acc
+    }, {})
+  }, [counts, driverOrders, isDriverSession])
   const showDrawer = selectedOrder && (activeView === 'orders' || activeView === 'history')
 
+  if (!session) {
+    return <LoginScreen drivers={safeDrivers} onLogin={setSession} />
+  }
+
   return (
-    <div className="app-frame">
-      <Sidebar activeView={activeView} setActiveView={setActiveView} />
+    <div className={isDriverSession ? 'app-frame driver-app-frame' : 'app-frame'}>
+      {!isDriverSession && <Sidebar activeView={activeView} setActiveView={setActiveView} />}
       <main className="main-shell">
         {activeView === 'orders' && (
           <OrdersDashboard
@@ -441,14 +461,14 @@ function App() {
             setStatus={setStatus}
             sort={sort}
             setSort={setSort}
-            counts={counts}
-            visibleOrders={visibleOrders}
+            counts={dashboardCounts}
+            visibleOrders={dashboardOrders}
             setSelectedOrder={setSelectedOrder}
           />
         )}
-        {activeView === 'add' && <AddOrder drivers={safeDrivers} onAddOrder={handleAddOrder} nextOrderNumber={getNextOrderNumber(orders)} />}
-        {activeView === 'upload' && <UploadOrders onAddOrders={handleAddOrders} nextOrderNumber={getNextOrderNumber(orders)} />}
-        {activeView === 'drivers' && (
+        {!isDriverSession && activeView === 'add' && <AddOrder drivers={safeDrivers} onAddOrder={handleAddOrder} nextOrderNumber={getNextOrderNumber(orders)} />}
+        {!isDriverSession && activeView === 'upload' && <UploadOrders onAddOrders={handleAddOrders} nextOrderNumber={getNextOrderNumber(orders)} />}
+        {!isDriverSession && activeView === 'drivers' && (
           <Drivers
             drivers={safeDrivers}
             onAddDriver={handleAddDriver}
@@ -457,8 +477,8 @@ function App() {
             onToggleDriver={handleToggleDriver}
           />
         )}
-        {activeView === 'history' && <History orders={orders} setSelectedOrder={setSelectedOrder} />}
-        {activeView === 'settings' && <Settings />}
+        {!isDriverSession && activeView === 'history' && <History orders={orders} setSelectedOrder={setSelectedOrder} />}
+        {!isDriverSession && activeView === 'settings' && <Settings />}
       </main>
       {showDrawer && (
         <div className="drawer-layer" aria-label="Order details panel">
@@ -467,13 +487,73 @@ function App() {
             drivers={safeDrivers}
             order={selectedOrder}
             onClose={() => setSelectedOrder(null)}
+            mode={isDriverSession ? 'driver' : 'office'}
             onSave={handleSaveOrder}
-            onDelete={handleDeleteOrder}
+            onDelete={isDriverSession ? null : handleDeleteOrder}
           />
         </div>
       )}
-      <MobileNav activeView={activeView} setActiveView={setActiveView} />
+      {!isDriverSession && <MobileNav activeView={activeView} setActiveView={setActiveView} />}
     </div>
+  )
+}
+
+
+function LoginScreen({ drivers, onLogin }) {
+  const [loginMode, setLoginMode] = useState('office')
+  const [pin, setPin] = useState('')
+  const [message, setMessage] = useState('')
+
+  function handleSubmit(event) {
+    event.preventDefault()
+    setMessage('')
+
+    if (loginMode === 'office') {
+      if (pin === '7933') {
+        onLogin({ role: 'office' })
+        return
+      }
+
+      setMessage('Invalid office PIN.')
+      return
+    }
+
+    const matchedDriver = (Array.isArray(drivers) ? drivers : []).find((driver) => String(driver?.pin || '') === pin)
+    if (matchedDriver) {
+      onLogin({ role: 'driver', driver: matchedDriver })
+      return
+    }
+
+    setMessage('Driver PIN not found.')
+  }
+
+  return (
+    <main className="login-screen">
+      <section className="login-panel">
+        <div className="brand-block login-brand">
+          <div className="brand-mark">GD</div>
+          <div>
+            <p>Gingerbread</p>
+            <span>Delivery V2</span>
+          </div>
+        </div>
+        <div className="login-options">
+          <button className={loginMode === 'office' ? 'counter-card active' : 'counter-card'} type="button" onClick={() => setLoginMode('office')}>
+            <span>Office Login</span>
+            <strong>Office</strong>
+          </button>
+          <button className={loginMode === 'driver' ? 'counter-card active' : 'counter-card'} type="button" onClick={() => setLoginMode('driver')}>
+            <span>Driver Login</span>
+            <strong>Driver</strong>
+          </button>
+        </div>
+        <form className="form-card login-form" onSubmit={handleSubmit}>
+          <label>{loginMode === 'office' ? 'Office PIN' : 'Driver PIN'}<input value={pin} onChange={(event) => setPin(event.target.value)} placeholder="Enter PIN" autoFocus /></label>
+          {message && <p className="drawer-message error-message">{message}</p>}
+          <button className="primary-action" type="submit">Login</button>
+        </form>
+      </section>
+    </main>
   )
 }
 
@@ -608,11 +688,12 @@ function OrderCard({ order, onClick }) {
   )
 }
 
-function OrderDrawer({ drivers = [], order, onClose, onSave, onDelete }) {
+function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, onDelete }) {
   const [draft, setDraft] = useState(order)
   const availableDrivers = Array.isArray(drivers) ? drivers : []
   const [saveMessage, setSaveMessage] = useState('')
   const [validationMessage, setValidationMessage] = useState('')
+  const isDriverMode = mode === 'driver'
   const showProofFields = draft.status === 'Delivered'
   const showReceiver = draft.status === 'Delivered'
   const showFailureReason = draft.status === 'Failed'
@@ -668,7 +749,7 @@ function OrderDrawer({ drivers = [], order, onClose, onSave, onDelete }) {
           <label>Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} /></label>
           <label>Driver<select value={getDriverName(draft.driver)} onChange={(event) => updateDraft('driver', event.target.value)}>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index}>{getDriverName(driver)}</option>)}</select></label>
           <label>Status<select value={draft?.status || 'Active'} onChange={(event) => updateDraft('status', event.target.value)}>{editableStatusOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
-          <label>Notes<textarea value={draft.notes} onChange={(event) => updateDraft('notes', event.target.value)} rows="4" /></label>
+          {!isDriverMode && <label>Notes<textarea value={draft.notes} onChange={(event) => updateDraft('notes', event.target.value)} rows="4" /></label>}
           {showReceiver && <label>Receiver Name<input required value={draft.receiver} onChange={(event) => updateDraft('receiver', event.target.value)} /></label>}
           {showProofFields && (
             <div className="delivery-proof-field">
@@ -694,7 +775,7 @@ function OrderDrawer({ drivers = [], order, onClose, onSave, onDelete }) {
         {saveMessage && <p className="drawer-message saved-message">{saveMessage}</p>}
         <div className="drawer-actions">
           <button className="primary-action" type="submit">Save Changes</button>
-          <button className="danger-action" type="button" onClick={onDelete}>Delete Order</button>
+          {!isDriverMode && onDelete && <button className="danger-action" type="button" onClick={onDelete}>Delete Order</button>}
           <button className="secondary-action" type="button" onClick={handleOpenMaps}>Open Maps</button>
           <button className="secondary-action" type="button" onClick={onClose}>Close</button>
         </div>

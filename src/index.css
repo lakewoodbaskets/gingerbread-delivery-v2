@@ -1016,3 +1016,54 @@ textarea:focus {
   padding: 0 10px;
   font-size: 0.82rem;
 }
+
+
+.login-screen {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  background: #ffffff;
+  padding: 24px;
+}
+
+.login-panel {
+  display: grid;
+  width: min(100%, 640px);
+  gap: 18px;
+}
+
+.login-brand {
+  justify-content: center;
+  padding: 0;
+}
+
+.login-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.login-form {
+  display: grid;
+  gap: 14px;
+}
+
+.login-form label {
+  display: grid;
+  gap: 8px;
+  color: #a85f32;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.driver-app-frame {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.driver-app-frame .main-shell {
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
+}
