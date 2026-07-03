@@ -1089,3 +1089,19 @@ textarea:focus {
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
+
+
+.settings-card label {
+  display: grid;
+  gap: 8px;
+  color: #a85f32;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.settings-card input[type="file"] {
+  height: auto;
+  padding: 13px 14px;
+}

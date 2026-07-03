@@ -108,6 +108,14 @@ const statusOptions = ['All', 'New', 'Out for Delivery', 'Delivered', 'Failed']
 const editableStatusOptions = statusOptions.filter((option) => option !== 'All')
 const sortOptions = ['Newest First', 'Oldest First', 'Customer A-Z', 'Customer Z-A']
 
+const defaultSettings = {
+  companyName: 'Gingerbread Delivery',
+  officePin: '7933',
+  companyLogoName: '',
+  archiveDeliveredAfterDays: 7,
+  deleteArchivedAfterDays: 30,
+}
+
 const statusClass = {
   New: 'new',
   'Out for Delivery': 'out',
@@ -199,6 +207,39 @@ function mapDriverToRow(driver = {}) {
   }
 }
 
+
+function mapSettingsRows(rows = []) {
+  return rows.reduce((settings, row) => {
+    if (!row?.key) return settings
+    return { ...settings, [row.key]: row.value }
+  }, { ...defaultSettings })
+}
+
+function settingsToRows(settings) {
+  return Object.entries(settings).map(([key, value]) => ({ key, value }))
+}
+
+async function loadSettings() {
+  if (!supabase) throw new Error('Missing Supabase environment variables')
+  const { data, error } = await supabase
+    .from('app_settings')
+    .select('key,value')
+
+  if (error) throw error
+  return mapSettingsRows(data || [])
+}
+
+async function saveSettings(settings) {
+  if (!supabase) throw new Error('Missing Supabase environment variables')
+  const { data, error } = await supabase
+    .from('app_settings')
+    .upsert(settingsToRows(settings), { onConflict: 'key' })
+    .select('key,value')
+
+  if (error) throw error
+  return mapSettingsRows(data || [])
+}
+
 async function loadDeliveries() {
   if (!supabase) throw new Error('Missing Supabase environment variables')
   const { data, error } = await supabase
@@ -230,6 +271,7 @@ function App() {
   const [sort, setSort] = useState('Newest First')
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [session, setSession] = useState(null)
+  const [settings, setSettings] = useState(defaultSettings)
 
   const safeDrivers = Array.isArray(drivers) ? drivers.filter(Boolean) : []
 
@@ -241,6 +283,10 @@ function App() {
       }
 
       try {
+        const settingsRows = await loadSettings().catch((error) => {
+          logSupabaseError('Failed to load settings', error)
+          return defaultSettings
+        })
         const deliveryRows = await loadDeliveries().catch((error) => {
           logSupabaseError('Failed to load deliveries', error)
           return []
@@ -249,6 +295,7 @@ function App() {
           logSupabaseError('Failed to load drivers', error)
           return []
         })
+        setSettings(settingsRows)
         setOrders(deliveryRows)
         setDrivers(driverRows)
       } catch (error) {
@@ -258,6 +305,18 @@ function App() {
 
     loadData()
   }, [])
+
+
+  async function handleSaveSettings(nextSettings) {
+    try {
+      const savedSettings = await saveSettings(nextSettings)
+      setSettings(savedSettings)
+      return savedSettings
+    } catch (error) {
+      logSupabaseError('Failed to save settings', error)
+      throw error
+    }
+  }
 
   async function handleAddOrder(order) {
     try {
@@ -454,7 +513,7 @@ function App() {
   const showDrawer = selectedOrder && (activeView === 'orders' || activeView === 'history')
 
   if (!session) {
-    return <LoginScreen drivers={safeDrivers} onLogin={setSession} />
+    return <LoginScreen drivers={safeDrivers} officePin={settings.officePin} companyName={settings.companyName} onLogin={setSession} />
   }
 
   return (
@@ -490,7 +549,7 @@ function App() {
           />
         )}
         {!isDriverSession && activeView === 'history' && <History orders={orders} setSelectedOrder={setSelectedOrder} />}
-        {!isDriverSession && activeView === 'settings' && <Settings />}
+        {!isDriverSession && activeView === 'settings' && <Settings settings={settings} onSaveSettings={handleSaveSettings} />}
       </main>
       {showDrawer && (
         <div className="drawer-layer" aria-label="Order details panel">
@@ -511,7 +570,7 @@ function App() {
 }
 
 
-function LoginScreen({ drivers, onLogin }) {
+function LoginScreen({ drivers, officePin, companyName, onLogin }) {
   const [loginMode, setLoginMode] = useState('office')
   const [pin, setPin] = useState('')
   const [message, setMessage] = useState('')
@@ -521,7 +580,7 @@ function LoginScreen({ drivers, onLogin }) {
     setMessage('')
 
     if (loginMode === 'office') {
-      if (pin === '7933') {
+      if (pin === String(officePin || '7933')) {
         onLogin({ role: 'office' })
         return
       }
@@ -545,7 +604,7 @@ function LoginScreen({ drivers, onLogin }) {
         <div className="brand-block login-brand">
           <div className="brand-mark">GD</div>
           <div>
-            <p>Gingerbread</p>
+            <p>{companyName || 'Gingerbread Delivery'}</p>
             <span>Delivery V2</span>
           </div>
         </div>
@@ -1039,15 +1098,53 @@ function History({ orders, setSelectedOrder }) {
   )
 }
 
-function Settings() {
+function Settings({ settings, onSaveSettings }) {
+  const [draft, setDraft] = useState(settings || defaultSettings)
+  const [message, setMessage] = useState('')
+
+  function updateDraft(field, value) {
+    setMessage('')
+    setDraft((currentDraft) => ({ ...currentDraft, [field]: value }))
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+    const nextSettings = {
+      companyName: draft.companyName || 'Gingerbread Delivery',
+      officePin: String(draft.officePin || '').trim(),
+      companyLogoName: draft.companyLogoName || '',
+      archiveDeliveredAfterDays: Number(draft.archiveDeliveredAfterDays) || 7,
+      deleteArchivedAfterDays: Number(draft.deleteArchivedAfterDays) || 30,
+    }
+
+    if (!nextSettings.officePin) {
+      setMessage('Office PIN is required.')
+      return
+    }
+
+    await onSaveSettings(nextSettings)
+    setDraft(nextSettings)
+    setMessage('Saved ✓')
+  }
+
+  function handleLogoChange(event) {
+    const file = event.target.files?.[0]
+    updateDraft('companyLogoName', file?.name || '')
+  }
+
   return (
     <section className="single-view">
-      <PageHeader eyebrow="Workspace" title="Settings" subtitle="Mock settings for the first UI version" />
-      <div className="form-card settings-card">
-        <Detail label="Brand" value="Gingerbread Delivery" />
-        <Detail label="Default city" value="Chicago" />
-        <Detail label="Notifications" value="Driver updates and failed delivery alerts" />
-      </div>
+      <PageHeader eyebrow="Workspace" title="Settings" subtitle="Office settings" />
+      <form className="form-card settings-card" onSubmit={handleSubmit}>
+        <label>Company Name<input value={draft.companyName || ''} onChange={(event) => updateDraft('companyName', event.target.value)} /></label>
+        <label>Office PIN<input value={draft.officePin || ''} onChange={(event) => updateDraft('officePin', event.target.value)} /></label>
+        <label>Company Logo upload<input type="file" accept="image/*" onChange={handleLogoChange} /></label>
+        {draft.companyLogoName && <Detail label="Selected logo" value={draft.companyLogoName} />}
+        <label>Automatically archive delivered orders after X days<input type="number" min="1" value={draft.archiveDeliveredAfterDays || 7} onChange={(event) => updateDraft('archiveDeliveredAfterDays', event.target.value)} /></label>
+        <label>Permanently delete archived orders after X days<input type="number" min="1" value={draft.deleteArchivedAfterDays || 30} onChange={(event) => updateDraft('deleteArchivedAfterDays', event.target.value)} /></label>
+        {message && <p className="drawer-message saved-message">{message}</p>}
+        <button className="primary-action" type="submit">Save Settings</button>
+      </form>
     </section>
   )
 }
