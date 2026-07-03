@@ -130,12 +130,14 @@ function getCompletedAt(order) {
 }
 
 function logSupabaseError(action, error) {
-  console.error(action, {
-    message: error?.message,
-    details: error?.details,
-    hint: error?.hint,
-    code: error?.code,
-  })
+  console.error(action)
+  console.error("Supabase error:", JSON.stringify(error, null, 2))
+  console.error(error)
+  console.error("error.message", error?.message)
+  console.error("error.details", error?.details)
+  console.error("error.hint", error?.hint)
+  console.error("error.code", error?.code)
+  console.error("error.status", error?.status)
 }
 
 function mapDeliveryFromRow(row = {}) {
@@ -238,7 +240,14 @@ function App() {
       }
 
       try {
-        const [deliveryRows, driverRows] = await Promise.all([loadDeliveries(), loadDrivers()])
+        const deliveryRows = await loadDeliveries().catch((error) => {
+          logSupabaseError('Failed to load deliveries', error)
+          return []
+        })
+        const driverRows = await loadDrivers().catch((error) => {
+          logSupabaseError('Failed to load drivers', error)
+          return []
+        })
         setOrders(deliveryRows)
         setDrivers(driverRows)
       } catch (error) {
@@ -299,7 +308,7 @@ function App() {
       setOrders((currentOrders) => currentOrders.map((order) => order.dbId === savedOrder.dbId || order.id === selectedOrder.id ? savedOrder : order))
       setSelectedOrder(savedOrder)
     } catch (error) {
-      logSupabaseError('Failed to save order', error)
+      logSupabaseError('Failed to update order', error)
       throw error
     }
   }
