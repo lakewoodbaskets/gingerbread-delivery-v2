@@ -101,6 +101,7 @@ const navItems = [
   { id: 'add', label: 'Add Order', mobile: 'Add' },
   { id: 'upload', label: 'Upload Orders', mobile: 'Upload' },
   { id: 'quick', label: 'Quick Entry' },
+  { id: 'dispatch', label: 'Dispatch' },
   { id: 'drivers', label: 'Drivers', mobile: 'Drivers' },
   { id: 'history', label: 'History', mobile: 'History' },
   { id: 'settings', label: 'Settings' },
@@ -515,6 +516,42 @@ function App() {
     })
   }
 
+  async function handleDispatchOrders(orderIds, driverName) {
+    const selectedIds = Array.isArray(orderIds) ? orderIds.filter(Boolean) : []
+    const assignedDriver = getDriverName(driverName).trim()
+
+    if (!selectedIds.length || !assignedDriver) {
+      showToast('Select orders and a driver', 'error')
+      return false
+    }
+
+    const selectedOrders = orders.filter((order) => selectedIds.includes(order.dbId || order.id) && order.status === 'New')
+    if (!selectedOrders.length) {
+      showToast('No New orders selected', 'error')
+      return false
+    }
+
+    try {
+      if (!supabase) throw new Error('Missing Supabase environment variables')
+      const savedOrders = await Promise.all(selectedOrders.map(async (order) => {
+        const nextOrder = { ...order, driver: assignedDriver, status: 'Out for Delivery' }
+        let query = supabase.from('deliveries').update(mapDeliveryToRow(nextOrder))
+        query = order.dbId ? query.eq('id', order.dbId) : query.eq('order_no', order.id)
+        const { data, error } = await query.select('*').single()
+        if (error) throw error
+        return mapDeliveryFromRow(data)
+      }))
+
+      setOrders((currentOrders) => currentOrders.map((order) => savedOrders.find((savedOrder) => savedOrder.dbId === order.dbId || savedOrder.id === order.id) || order))
+      showToast('Orders sent out')
+      return true
+    } catch (error) {
+      logSupabaseError('Failed to dispatch orders', error)
+      showToast('Save failed', 'error')
+      return false
+    }
+  }
+
   const counts = useMemo(() => {
     return statusOptions.reduce((acc, option) => {
       acc[option] = option === 'All' ? orders.length : orders.filter((order) => order.status === option).length
@@ -544,7 +581,7 @@ function App() {
   const driverOrders = useMemo(() => {
     if (!isDriverSession) return visibleOrders
     const driverName = getDriverName(session.driver)
-    return visibleOrders.filter((order) => getDriverName(order.driver) === driverName)
+    return visibleOrders.filter((order) => order.status === 'Out for Delivery' && getDriverName(order.driver) === driverName)
   }, [isDriverSession, session, visibleOrders])
 
   const dashboardOrders = isDriverSession ? driverOrders : visibleOrders
@@ -588,11 +625,15 @@ function App() {
             counts={dashboardCounts}
             visibleOrders={dashboardOrders}
             setSelectedOrder={setSelectedOrder}
+            drivers={safeDrivers}
+            isOffice={!isDriverSession}
+            onDispatchOrders={handleDispatchOrders}
           />
         )}
         {!isDriverSession && activeView === 'add' && <AddOrder drivers={safeDrivers} onAddOrder={handleAddOrder} nextOrderNumber={getNextOrderNumber(orders)} />}
         {!isDriverSession && activeView === 'upload' && <UploadOrders onAddOrders={handleAddOrders} nextOrderNumber={getNextOrderNumber(orders)} />}
         {!isDriverSession && activeView === 'quick' && <QuickEntry orders={orders} onAddOrders={handleAddOrders} />}
+        {!isDriverSession && activeView === 'dispatch' && <Dispatch orders={orders} drivers={safeDrivers} onDispatchOrders={handleDispatchOrders} />}
         {!isDriverSession && activeView === 'drivers' && (
           <Drivers
             drivers={safeDrivers}
@@ -740,7 +781,7 @@ function PageHeader({ eyebrow, title, subtitle }) {
   )
 }
 
-function OrdersDashboard({ query, setQuery, status, setStatus, sort, setSort, counts, visibleOrders, setSelectedOrder }) {
+function OrdersDashboard({ query, setQuery, status, setStatus, sort, setSort, counts, visibleOrders, setSelectedOrder, drivers = [], isOffice = false, onDispatchOrders }) {
   return (
     <section className="dashboard-view">
       <PageHeader eyebrow="Dispatch dashboard" title="Gingerbread Delivery" subtitle="Delivery management" />
@@ -781,33 +822,51 @@ function OrdersDashboard({ query, setQuery, status, setStatus, sort, setSort, co
       </div>
       <div className="order-grid">
         {visibleOrders.map((order) => (
-          <OrderCard key={order.id} order={order} onClick={() => setSelectedOrder(order)} />
+          <OrderCard key={order.id} order={order} onClick={() => setSelectedOrder(order)} drivers={drivers} canQuickDispatch={isOffice && order.status === 'New'} onDispatchOrders={onDispatchOrders} />
         ))}
       </div>
     </section>
   )
 }
 
-function OrderCard({ order, onClick }) {
+function OrderCard({ order, onClick, drivers = [], canQuickDispatch = false, onDispatchOrders }) {
   const tone = statusClass[order.status]
+  const availableDrivers = Array.isArray(drivers) ? drivers.filter((driver) => (driver?.status || 'Active') === 'Active') : []
+  const [dispatchDriver, setDispatchDriver] = useState(getDriverName(availableDrivers[0]))
+
+  function handleQuickDispatch(event) {
+    event.stopPropagation()
+    onDispatchOrders?.([order.dbId || order.id], dispatchDriver)
+  }
 
   return (
-    <button className="order-card" onClick={onClick} type="button">
-      <div className="order-card-top">
-        <span>{order.id}</span>
-        <span className={'status-pill ' + tone}>{order.status}</span>
-      </div>
-      <h2>{order.customer}</h2>
-      <div className="order-meta">
-        <p>{order.phone}</p>
-        <p>{order.address}</p>
-      </div>
-      <div className="assignment-row">
-        <span>{getDriverName(order.driver)}</span>
-        <strong>{order.time}</strong>
-      </div>
+    <article className="order-card">
+      <button className="order-card-open" onClick={onClick} type="button">
+        <div className="order-card-top">
+          <span>{order.id}</span>
+          <span className={'status-pill ' + tone}>{order.status}</span>
+        </div>
+        <h2>{order.customer}</h2>
+        <div className="order-meta">
+          <p>{order.phone}</p>
+          <p>{order.address}</p>
+        </div>
+        <div className="assignment-row">
+          <span>{getDriverName(order.driver) || 'Unassigned'}</span>
+          <strong>{order.time}</strong>
+        </div>
+      </button>
+      {canQuickDispatch && (
+        <div className="quick-dispatch">
+          <select value={dispatchDriver} onChange={(event) => setDispatchDriver(event.target.value)} onClick={(event) => event.stopPropagation()}>
+            <option value="">Choose driver</option>
+            {availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index} value={getDriverName(driver)}>{getDriverName(driver)}</option>)}
+          </select>
+          <button className="secondary-action" type="button" disabled={!dispatchDriver} onClick={handleQuickDispatch}>Out for Delivery</button>
+        </div>
+      )}
       <div className={'status-strip ' + tone}>{order.status}</div>
-    </button>
+    </article>
   )
 }
 
@@ -974,7 +1033,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
           {!isDriverMode && <label>Customer Name<input value={draft.customer} onChange={(event) => updateDraft('customer', event.target.value)} /></label>}
           {!isDriverMode && <label>Phone<input value={draft.phone} onChange={(event) => updateDraft('phone', event.target.value)} /></label>}
           {!isDriverMode && <label>Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} /></label>}
-          {!isDriverMode && <label>Driver<select value={getDriverName(draft.driver)} onChange={(event) => updateDraft('driver', event.target.value)}>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index}>{getDriverName(driver)}</option>)}</select></label>}
+          {!isDriverMode && <label>Driver<select value={getDriverName(draft.driver)} onChange={(event) => updateDraft('driver', event.target.value)}><option value="">Unassigned</option>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index}>{getDriverName(driver)}</option>)}</select></label>}
           <label>Status<select disabled={isDriverMode && !canDriverEdit} value={draft.status} onChange={(event) => updateDraft('status', event.target.value)}>{statusChoices.map((option) => <option key={option}>{option}</option>)}</select></label>
           {!isDriverMode && <label>Notes<textarea value={draft.notes} onChange={(event) => updateDraft('notes', event.target.value)} rows="4" /></label>}
           {showReceiver && <label>Receiver Name<input disabled={isDriverMode && !canDriverEdit} required value={draft.receiver} onChange={(event) => updateDraft('receiver', event.target.value)} /></label>}
@@ -1131,7 +1190,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
     customer: '',
     phone: '',
     address: '',
-    driver: getDriverName(availableDrivers[0]),
+    driver: '',
     time: 'Today, 2:00 PM',
     status: 'New',
     notes: '',
@@ -1152,6 +1211,8 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
     event.preventDefault()
     await onAddOrder({
       ...draft,
+      driver: getDriverName(draft.driver),
+      status: 'New',
       receiver: showReceiver ? draft.receiver : '',
       failureReason: showFailureReason ? draft.failureReason : '',
       proofPhoto: showReceiver ? draft.proofPhoto : '',
@@ -1169,9 +1230,8 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
           <label>Customer name<input value={draft.customer} onChange={(event) => updateDraft('customer', event.target.value)} placeholder="Customer name" /></label>
           <label>Phone<input value={draft.phone} onChange={(event) => updateDraft('phone', event.target.value)} placeholder="Phone number" /></label>
           <label className="wide">Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} placeholder="Street, city, state" /></label>
-          <label>Driver<select value={getDriverName(draft.driver)} onChange={(event) => updateDraft('driver', event.target.value)}>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index}>{getDriverName(driver)}</option>)}</select></label>
+          <label>Driver<select value={getDriverName(draft.driver)} onChange={(event) => updateDraft('driver', event.target.value)}><option value="">Unassigned</option>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index}>{getDriverName(driver)}</option>)}</select></label>
           <label>Delivery time<input value={draft.time} onChange={(event) => updateDraft('time', event.target.value)} placeholder="Today, 2:00 PM" /></label>
-          <label>Status<select value={draft.status} onChange={(event) => updateDraft('status', event.target.value)}>{editableStatusOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
           <label className="wide">Notes<textarea value={draft.notes} onChange={(event) => updateDraft('notes', event.target.value)} placeholder="Delivery instructions" rows="4" /></label>
           {showReceiver && <label>Receiver Name<input value={draft.receiver} onChange={(event) => updateDraft('receiver', event.target.value)} placeholder="Receiver name" /></label>}
           {showFailureReason && <label className="wide">Failure Reason<textarea value={draft.failureReason} onChange={(event) => updateDraft('failureReason', event.target.value)} placeholder="Reason delivery failed" rows="3" /></label>}
@@ -1422,6 +1482,56 @@ function QuickEntry({ orders = [], onAddOrders }) {
               />
             )))}
           </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+
+function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
+  const newOrders = (Array.isArray(orders) ? orders : []).filter((order) => order.status === 'New')
+  const availableDrivers = (Array.isArray(drivers) ? drivers : []).filter((driver) => (driver?.status || 'Active') === 'Active')
+  const [selectedIds, setSelectedIds] = useState([])
+  const [selectedDriver, setSelectedDriver] = useState('')
+
+  function toggleOrder(orderId) {
+    setSelectedIds((currentIds) => currentIds.includes(orderId) ? currentIds.filter((id) => id !== orderId) : [...currentIds, orderId])
+  }
+
+  function toggleAll() {
+    setSelectedIds((currentIds) => currentIds.length === newOrders.length ? [] : newOrders.map((order) => order.dbId || order.id))
+  }
+
+  async function handleSendOut() {
+    const dispatched = await onDispatchOrders(selectedIds, selectedDriver)
+    if (dispatched) setSelectedIds([])
+  }
+
+  return (
+    <section className="single-view dispatch-view">
+      <PageHeader eyebrow="Office" title="Dispatch" subtitle="Assign New orders and send them out for delivery" />
+      <div className="dispatch-panel">
+        <div className="dispatch-toolbar">
+          <label className="dispatch-select-all"><input type="checkbox" checked={newOrders.length > 0 && selectedIds.length === newOrders.length} onChange={toggleAll} />Select all New orders</label>
+          <label className="select-field"><span>Driver</span><select value={selectedDriver} onChange={(event) => setSelectedDriver(event.target.value)}><option value="">Choose driver</option>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index} value={getDriverName(driver)}>{getDriverName(driver)}</option>)}</select></label>
+          <button className="primary-action" type="button" disabled={!selectedIds.length || !selectedDriver} onClick={handleSendOut}>Send Out for Delivery</button>
+        </div>
+        <div className="dispatch-list">
+          {newOrders.map((order) => {
+            const orderId = order.dbId || order.id
+            return (
+              <label className="dispatch-row" key={orderId}>
+                <input type="checkbox" checked={selectedIds.includes(orderId)} onChange={() => toggleOrder(orderId)} />
+                <div>
+                  <strong>{order.id}</strong>
+                  <span>{order.customer}</span>
+                </div>
+                <p>{order.address}</p>
+              </label>
+            )
+          })}
+          {!newOrders.length && <p className="empty-state">No New orders are waiting for dispatch.</p>}
         </div>
       </div>
     </section>
