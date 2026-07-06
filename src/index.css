@@ -1397,13 +1397,29 @@ textarea:focus {
   padding: 0 16px;
 }
 
+.dispatch-date-group {
+  display: grid;
+}
+
 .dispatch-group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: 0;
   border-bottom: 1px solid #eee7df;
   background: #fffaf4;
   color: #8d623d;
   padding: 12px 18px;
+  text-align: left;
   font-size: 0.78rem;
   font-weight: 950;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.dispatch-group-heading strong {
+  color: #5f574f;
+  font-size: 0.78rem;
+  font-weight: 950;
 }

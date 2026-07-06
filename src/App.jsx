@@ -9,7 +9,6 @@ const initialOrders = [
     phone: '(312) 555-0188',
     address: '1840 W Armitage Ave, Chicago, IL',
     driver: 'Andre Lewis',
-    time: 'Today, 9:30 AM',
     status: 'New',
     notes: 'Ring bell twice. Leave with front desk if unavailable.',
     receiver: '',
@@ -22,7 +21,6 @@ const initialOrders = [
     phone: '(773) 555-0142',
     address: '500 N Michigan Ave, Chicago, IL',
     driver: 'Sofia Rivera',
-    time: 'Today, 10:15 AM',
     status: 'Out for Delivery',
     notes: 'Customer requested a call on arrival.',
     receiver: '',
@@ -35,7 +33,6 @@ const initialOrders = [
     phone: '(847) 555-0191',
     address: '222 Merchandise Mart Plaza, Chicago, IL',
     driver: 'Marcus Bell',
-    time: 'Today, 11:05 AM',
     status: 'Delivered',
     notes: 'Delivered to reception desk.',
     receiver: 'Janet Moore',
@@ -48,7 +45,6 @@ const initialOrders = [
     phone: '(708) 555-0165',
     address: '1452 N Wells St, Chicago, IL',
     driver: 'Priya Shah',
-    time: 'Yesterday, 4:40 PM',
     status: 'Failed',
     notes: 'No answer. Gate code did not work.',
     receiver: '',
@@ -61,7 +57,6 @@ const initialOrders = [
     phone: '(312) 555-0177',
     address: '909 W Randolph St, Chicago, IL',
     driver: 'Andre Lewis',
-    time: 'Yesterday, 2:20 PM',
     status: 'Delivered',
     notes: 'Customer met driver outside.',
     receiver: 'Ari Kim',
@@ -74,7 +69,6 @@ const initialOrders = [
     phone: '(773) 555-0109',
     address: '320 S Canal St, Chicago, IL',
     driver: 'Sofia Rivera',
-    time: 'Tomorrow, 8:45 AM',
     status: 'New',
     notes: 'Fragile package. Keep upright.',
     receiver: '',
@@ -150,6 +144,18 @@ function matchesDateFilter(order, filter) {
   return true
 }
 
+function getDateGroupKey(order) {
+  return getDeliveryDate(order)
+}
+
+function getDateGroupLabel(dateValue) {
+  if (dateValue === getTodayDate()) return 'TODAY'
+  if (dateValue === getOffsetDate(1)) return 'TOMORROW'
+  const date = new Date(dateValue + 'T00:00:00')
+  if (Number.isNaN(date.getTime())) return dateValue || 'UNSCHEDULED'
+  return date.toLocaleDateString(undefined, { weekday: 'long' }).toUpperCase()
+}
+
 function getCompletedAt(order) {
   return order?.status === 'Delivered' ? order?.completedAt || order?.completed_at || new Date().toISOString() : null
 }
@@ -173,7 +179,6 @@ function mapDeliveryFromRow(row = {}) {
     phone: row.phone || '',
     address: row.address || '',
     driver: getDriverName(row.driver),
-    time: row.delivery_date || 'Imported',
     deliveryDate: row.delivery_date || '',
     status: row.status || 'New',
     notes: row.notes || '',
@@ -962,7 +967,7 @@ function OrderCard({ order, onClick, drivers = [], canQuickDispatch = false, onD
         </div>
         <div className="assignment-row">
           <span>{getDriverName(order.driver) || 'Unassigned'}</span>
-          <strong>{order.time}</strong>
+          <strong>{getDeliveryDate(order)}</strong>
         </div>
       </button>
       {canQuickDispatch && (
@@ -1160,7 +1165,6 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
     phone: '',
     address: '',
     driver: '',
-    time: 'Today, 2:00 PM',
     deliveryDate: getTodayDate(),
     status: 'New',
     notes: '',
@@ -1201,7 +1205,6 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
           <label className="wide">Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} placeholder="Street, city, state" /></label>
           <label>Driver<select value={getDriverName(draft.driver)} onChange={(event) => updateDraft('driver', event.target.value)}><option value="">Unassigned</option>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index}>{getDriverName(driver)}</option>)}</select></label>
           <label>Delivery Date<input type="date" value={draft.deliveryDate || getTodayDate()} onChange={(event) => updateDraft('deliveryDate', event.target.value)} /></label>
-          <label>Delivery time<input value={draft.time} onChange={(event) => updateDraft('time', event.target.value)} placeholder="Today, 2:00 PM" /></label>
           <label className="wide">Notes<textarea value={draft.notes} onChange={(event) => updateDraft('notes', event.target.value)} placeholder="Delivery instructions" rows="4" /></label>
           {showReceiver && <label>Receiver Name<input value={draft.receiver} onChange={(event) => updateDraft('receiver', event.target.value)} placeholder="Receiver name" /></label>}
           {showFailureReason && <label className="wide">Failure Reason<textarea value={draft.failureReason} onChange={(event) => updateDraft('failureReason', event.target.value)} placeholder="Reason delivery failed" rows="3" /></label>}
@@ -1355,7 +1358,6 @@ function QuickEntry({ orders = [], onAddOrders }) {
         phone: String(row.phone || '').trim(),
         address: String(row.address || '').trim(),
         driver: '',
-        time: 'Quick Entry',
         status: 'New',
         notes: String(row.notes || '').trim(),
         receiver: '',
@@ -1485,13 +1487,41 @@ function normalizeHeader(value) {
 }
 
 function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
-  const newOrders = (Array.isArray(orders) ? orders : []).filter((order) => order.status === 'New')
-  const todayOrders = newOrders.filter((order) => matchesDateFilter(order, 'Today'))
-  const otherNewOrders = newOrders.filter((order) => !matchesDateFilter(order, 'Today')).sort((a, b) => getDeliveryDate(a).localeCompare(getDeliveryDate(b)) || a.id.localeCompare(b.id))
-  const dispatchOrders = [...todayOrders, ...otherNewOrders]
+  const newOrders = (Array.isArray(orders) ? orders : [])
+    .filter((order) => order.status === 'New')
+    .sort((a, b) => getDeliveryDate(a).localeCompare(getDeliveryDate(b)) || a.id.localeCompare(b.id))
+  const groupedOrders = newOrders.reduce((groups, order) => {
+    const dateKey = getDateGroupKey(order)
+    if (!groups[dateKey]) groups[dateKey] = []
+    groups[dateKey].push(order)
+    return groups
+  }, {})
+  const dateGroups = Object.keys(groupedOrders).sort().map((dateKey) => ({ dateKey, orders: groupedOrders[dateKey] }))
+  const dispatchOrders = dateGroups.flatMap((group) => group.orders)
   const availableDrivers = (Array.isArray(drivers) ? drivers : []).filter((driver) => (driver?.status || 'Active') === 'Active')
   const [selectedIds, setSelectedIds] = useState([])
   const [selectedDriver, setSelectedDriver] = useState('')
+  const [collapsedDates, setCollapsedDates] = useState(() => new Set())
+
+  function isDateCollapsed(dateKey) {
+    if (dateKey === getTodayDate()) return collapsedDates.has(dateKey)
+    return !collapsedDates.has(dateKey)
+  }
+
+  function toggleDateGroup(dateKey) {
+    setCollapsedDates((currentDates) => {
+      const nextDates = new Set(currentDates)
+      if (dateKey === getTodayDate()) {
+        if (nextDates.has(dateKey)) nextDates.delete(dateKey)
+        else nextDates.add(dateKey)
+        return nextDates
+      }
+
+      if (nextDates.has(dateKey)) nextDates.delete(dateKey)
+      else nextDates.add(dateKey)
+      return nextDates
+    })
+  }
 
   function toggleOrder(orderId) {
     setSelectedIds((currentIds) => currentIds.includes(orderId) ? currentIds.filter((id) => id !== orderId) : [...currentIds, orderId])
@@ -1530,10 +1560,18 @@ function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
           <button className="primary-action" type="button" disabled={!selectedIds.length || !selectedDriver} onClick={handleSendOut}>Send Out for Delivery</button>
         </div>
         <div className="dispatch-list">
-          <div className="dispatch-group-heading">Ready for Today</div>
-          {todayOrders.map(renderDispatchRow)}
-          {!!otherNewOrders.length && <div className="dispatch-group-heading">Future Orders</div>}
-          {otherNewOrders.map(renderDispatchRow)}
+          {dateGroups.map((group) => {
+            const collapsed = isDateCollapsed(group.dateKey)
+            return (
+              <div className="dispatch-date-group" key={group.dateKey}>
+                <button className="dispatch-group-heading" type="button" onClick={() => toggleDateGroup(group.dateKey)}>
+                  <span>{collapsed ? '>' : 'v'} {getDateGroupLabel(group.dateKey)}</span>
+                  <strong>{group.orders.length}</strong>
+                </button>
+                {!collapsed && group.orders.map(renderDispatchRow)}
+              </div>
+            )
+          })}
           {!dispatchOrders.length && <p className="empty-state">No New orders are waiting for dispatch.</p>}
         </div>
       </div>
@@ -1716,7 +1754,6 @@ function parseOrdersCsv(csvText, fallbackOrderNumber) {
       phone: cellValue(row, headerIndex.phone),
       address: cellValue(row, headerIndex.address),
       driver: cellValue(row, headerIndex.driver),
-      time: 'Imported',
       status: 'New',
       notes: cellValue(row, headerIndex.notes),
       receiver: '',
