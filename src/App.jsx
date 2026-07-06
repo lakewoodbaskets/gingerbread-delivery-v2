@@ -282,6 +282,7 @@ function App() {
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [session, setSession] = useState(null)
   const [settings, setSettings] = useState(defaultSettings)
+  const [printOrders, setPrintOrders] = useState([])
   const [toast, setToast] = useState(null)
   const toastTimeoutRef = useRef(null)
 
@@ -289,6 +290,13 @@ function App() {
     if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current)
     setToast({ message, type })
     toastTimeoutRef.current = window.setTimeout(() => setToast(null), 2600)
+  }
+
+  function handlePrintSlips(ordersToPrint) {
+    const printableOrders = (Array.isArray(ordersToPrint) ? ordersToPrint : [ordersToPrint]).filter(Boolean)
+    if (!printableOrders.length) return
+    setPrintOrders(printableOrders)
+    window.setTimeout(() => window.print(), 120)
   }
 
   const safeDrivers = Array.isArray(drivers) ? drivers.filter(Boolean) : []
@@ -556,6 +564,7 @@ function App() {
 
       setOrders((currentOrders) => currentOrders.map((order) => savedOrders.find((savedOrder) => savedOrder.dbId === order.dbId || savedOrder.id === order.id) || order))
       showToast('Orders sent out')
+      if (window.confirm('Print delivery slips now?')) handlePrintSlips(savedOrders)
       return true
     } catch (error) {
       logSupabaseError('Failed to dispatch orders', error)
@@ -668,15 +677,61 @@ function App() {
             onSave={handleSaveOrder}
             onDelete={isDriverSession ? null : handleDeleteOrder}
             onToast={showToast}
+            onPrintSlip={isDriverSession ? null : handlePrintSlips}
           />
         </div>
       )}
+      {!!printOrders.length && <PrintSlips orders={printOrders} onClose={() => setPrintOrders([])} />}
       {toast && <Toast message={toast.message} type={toast.type} />}
       {!isDriverSession && <MobileNav activeView={activeView} setActiveView={setActiveView} />}
     </div>
   )
 }
 
+
+
+function PrintSlips({ orders = [], onClose }) {
+  const printableOrders = Array.isArray(orders) ? orders : []
+
+  return (
+    <div className="print-view">
+      <div className="print-controls">
+        <button className="secondary-action" type="button" onClick={onClose}>Close</button>
+        <button className="primary-action" type="button" onClick={() => window.print()}>Print</button>
+      </div>
+      {printableOrders.map((order) => (
+        <section className="delivery-slip" key={order.dbId || order.id}>
+          <h1>Gingerbread Delivery</h1>
+          <div className="slip-grid">
+            <SlipField label="Order #" value={order.id} />
+            <SlipField label="Customer Name" value={order.customer} />
+            <SlipField label="Phone" value={order.phone} />
+            <SlipField label="Address" value={order.address} wide />
+            <SlipField label="Driver" value={getDriverName(order.driver) || 'Unassigned'} />
+            <SlipField label="Date" value={formatSlipDate(order)} />
+            <SlipField label="Notes" value={order.notes || 'None'} wide />
+          </div>
+        </section>
+      ))}
+    </div>
+  )
+}
+
+function SlipField({ label, value, wide = false }) {
+  return (
+    <div className={wide ? 'slip-field wide' : 'slip-field'}>
+      <span>{label}</span>
+      <strong>{value || ''}</strong>
+    </div>
+  )
+}
+
+function formatSlipDate(order) {
+  const rawDate = order?.deliveryDate || order?.delivery_date || new Date().toISOString()
+  const date = new Date(rawDate)
+  if (Number.isNaN(date.getTime())) return rawDate
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+}
 
 function LoginScreen({ drivers, officePin, companyName, onLogin }) {
   const [loginMode, setLoginMode] = useState('office')
@@ -881,7 +936,7 @@ function OrderCard({ order, onClick, drivers = [], canQuickDispatch = false, onD
   )
 }
 
-function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, onDelete, onToast = () => {} }) {
+function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, onDelete, onToast = () => {}, onPrintSlip = null }) {
   const [draft, setDraft] = useState(order)
   const availableDrivers = Array.isArray(drivers) ? drivers : []
   const [saveMessage, setSaveMessage] = useState('')
@@ -1027,6 +1082,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
         {saveMessage && <p className="drawer-message saved-message">{saveMessage}</p>}
         <div className="drawer-actions">
           {canDriverEdit && <button className="primary-action" type="submit">Save Changes</button>}
+          {!isDriverMode && onPrintSlip && <button className="secondary-action" type="button" onClick={() => onPrintSlip(order)}>Print Slip</button>}
           {!isDriverMode && onDelete && <button className="danger-action" type="button" onClick={onDelete}>Delete Order</button>}
           <button className="secondary-action" type="button" onClick={handleOpenMaps}>Open Maps</button>
           <button className="secondary-action" type="button" onClick={onClose}>Close</button>

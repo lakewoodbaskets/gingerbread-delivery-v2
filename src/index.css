@@ -1396,3 +1396,117 @@ textarea:focus {
   place-items: center;
   padding: 0 16px;
 }
+
+.print-view {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  overflow: auto;
+  background: #f8f4ef;
+  padding: 24px;
+}
+
+.print-controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  max-width: 820px;
+  margin: 0 auto 18px;
+}
+
+.delivery-slip {
+  width: min(100%, 820px);
+  min-height: 980px;
+  margin: 0 auto 24px;
+  border: 1px solid #e5ddd3;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1f1712;
+  padding: 48px;
+  page-break-after: always;
+  break-after: page;
+}
+
+.delivery-slip h1 {
+  margin: 0 0 34px;
+  border-bottom: 3px solid #1f1712;
+  padding-bottom: 22px;
+  font-size: 2.8rem;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.slip-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+}
+
+.slip-field {
+  display: grid;
+  gap: 8px;
+  border-bottom: 1px solid #e5ddd3;
+  padding-bottom: 18px;
+}
+
+.slip-field.wide {
+  grid-column: 1 / -1;
+}
+
+.slip-field span {
+  color: #8d623d;
+  font-size: 0.95rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.slip-field strong {
+  color: #1f1712;
+  font-size: 1.65rem;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
+@media print {
+  body {
+    background: #ffffff;
+  }
+
+  .sidebar,
+  .main-shell,
+  .drawer-layer,
+  .mobile-nav,
+  .toast-message,
+  .print-controls {
+    display: none !important;
+  }
+
+  .app-frame {
+    display: block;
+    min-height: 0;
+  }
+
+  .print-view {
+    position: static;
+    inset: auto;
+    overflow: visible;
+    background: #ffffff;
+    padding: 0;
+  }
+
+  .delivery-slip {
+    width: 100%;
+    min-height: 100vh;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0.45in;
+  }
+
+  .delivery-slip:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+}
