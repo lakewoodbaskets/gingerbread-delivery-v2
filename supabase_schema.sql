@@ -42,3 +42,39 @@ create trigger settings_set_updated_at
 before update on public.settings
 for each row
 execute function public.set_settings_updated_at();
+
+
+-- Storage bucket for delivery proof photos.
+insert into storage.buckets (id, name, public)
+values ('delivery-proofs', 'delivery-proofs', true)
+on conflict (id) do update set public = true;
+
+-- Allow proof photo uploads and reads from the app's anon client.
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'delivery_proofs_insert'
+  ) then
+    create policy delivery_proofs_insert
+    on storage.objects
+    for insert
+    to anon
+    with check (bucket_id = 'delivery-proofs');
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'delivery_proofs_select'
+  ) then
+    create policy delivery_proofs_select
+    on storage.objects
+    for select
+    to anon
+    using (bucket_id = 'delivery-proofs');
+  end if;
+end $$;

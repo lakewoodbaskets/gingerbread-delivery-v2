@@ -776,6 +776,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
   const availableDrivers = Array.isArray(drivers) ? drivers : []
   const [saveMessage, setSaveMessage] = useState('')
   const [validationMessage, setValidationMessage] = useState('')
+  const [isUploadingProof, setIsUploadingProof] = useState(false)
   const isDriverMode = mode === 'driver'
   const canDriverEdit = !isDriverMode || order?.status === 'Out for Delivery'
   const driverStatusOptions = ['Out for Delivery', 'Delivered', 'Failed']
@@ -804,7 +805,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
       return
     }
 
-    if (draft.status === 'Delivered' && (!draft.receiver.trim() || !draft.proofPhoto.trim() || !draft.signature.trim())) {
+    if (isDriverMode && draft.status === 'Delivered' && (!draft.receiver.trim() || !draft.proofPhoto.trim() || !draft.signature.trim())) {
       setValidationMessage('Receiver name, proof photo, and signature are required for delivered orders.')
       return
     }
@@ -829,6 +830,43 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
     })
     setSaveMessage('Saved ✓')
     window.setTimeout(onClose, 1000)
+  }
+
+  async function handleProofPhotoChange(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    if (!supabase) {
+      setValidationMessage('Supabase is not configured for proof photo upload.')
+      return
+    }
+
+    setValidationMessage('')
+    setSaveMessage('')
+    setIsUploadingProof(true)
+
+    try {
+      const safeOrderNumber = String(draft.id || order?.id || 'delivery').replace(/[^a-zA-Z0-9-_]/g, '-')
+      const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-')
+      const filePath = safeOrderNumber + '/' + Date.now() + '-' + safeFileName
+      const { error: uploadError } = await supabase.storage
+        .from('delivery-proofs')
+        .upload(filePath, file, { contentType: file.type, upsert: true })
+
+      if (uploadError) throw uploadError
+
+      const { data } = supabase.storage
+        .from('delivery-proofs')
+        .getPublicUrl(filePath)
+
+      updateDraft('proofPhoto', data.publicUrl)
+    } catch (error) {
+      logSupabaseError('Failed to upload proof photo', error)
+      setValidationMessage(error?.message || 'Failed to upload proof photo.')
+    } finally {
+      setIsUploadingProof(false)
+    }
   }
 
   function handleOpenMaps() {
@@ -857,10 +895,12 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
           {showProofFields && (
             <div className="delivery-proof-field">
               <span>Proof Photo</span>
-              <button disabled={isDriverMode && !canDriverEdit} className="proof-upload-button" type="button" onClick={() => updateDraft('proofPhoto', 'Proof photo attached')}>
-                📷 Take / Upload Proof Photo
-              </button>
-              {draft.proofPhoto && <p>{draft.proofPhoto}</p>}
+              {draft.proofPhoto && <img className="proof-thumbnail" src={draft.proofPhoto} alt="Delivery proof" />}
+              <label className="proof-upload-button">
+                <input disabled={(isDriverMode && !canDriverEdit) || isUploadingProof} type="file" accept="image/*" capture="environment" onChange={handleProofPhotoChange} />
+                {draft.proofPhoto ? 'Replace Photo' : '📷 Take / Upload Proof Photo'}
+              </label>
+              {isUploadingProof && <p>Uploading proof photo...</p>}
             </div>
           )}
           {showProofFields && (

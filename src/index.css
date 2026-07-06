@@ -1105,3 +1105,21 @@ textarea:focus {
   height: auto;
   padding: 13px 14px;
 }
+
+
+.proof-upload-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.proof-thumbnail {
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  border: 1px solid #e5ddd3;
+  border-radius: 8px;
+}
