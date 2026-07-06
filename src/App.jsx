@@ -747,12 +747,12 @@ function buildLabelPrintDocument(orders) {
     'html, body { width: 2.25in; min-width: 0; margin: 0; padding: 0; overflow: visible; background: #ffffff; }' +
     'body { color: #000000; font-family: Arial, Helvetica, sans-serif; }' +
     '.print-note { box-sizing: border-box; width: 2.25in; margin: 0 0 0.12in; padding: 0.06in; color: #000000; font-size: 10px; line-height: 1.25; }' +
-    '.zebra-label { display: block; box-sizing: border-box; width: 2.25in; height: 1.25in; margin: 0; overflow: hidden; page-break-after: always; break-after: page; page-break-inside: avoid; break-inside: avoid; padding: 0.055in 0.075in; background: #ffffff; color: #000000; }' +
+    '.zebra-label { display: block; box-sizing: border-box; width: 2.25in; height: 1.25in; margin: 0; overflow: hidden; page-break-after: always; break-after: page; page-break-inside: avoid; break-inside: avoid; padding: 0.075in 0.085in 0.055in; background: #ffffff; color: #000000; }' +
     '.label-kicker, .label-order-number, .label-customer, .label-address { display: block; color: #000000; letter-spacing: 0; }' +
-    '.label-kicker { font-size: 0.095in; font-weight: 900; line-height: 1; }' +
-    '.label-order-number { margin-top: 0.005in; overflow: hidden; font-size: 0.255in; font-weight: 900; line-height: 0.95; text-overflow: ellipsis; white-space: nowrap; }' +
-    '.label-customer { margin-top: 0.025in; overflow: hidden; font-size: 0.13in; font-weight: 800; line-height: 1.05; text-overflow: ellipsis; white-space: nowrap; }' +
-    '.label-address { display: -webkit-box; margin: 0.02in 0 0; overflow: hidden; font-size: 0.102in; font-weight: 700; line-height: 1.05; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }' +
+    '.label-kicker { font-size: 0.105in; font-weight: 900; line-height: 1; }' +
+    '.label-order-number { margin-top: 0.008in; overflow: hidden; font-size: 0.28in; font-weight: 900; line-height: 0.92; text-overflow: ellipsis; white-space: nowrap; }' +
+    '.label-customer { margin-top: 0.025in; overflow: hidden; font-size: 0.145in; font-weight: 800; line-height: 1.02; text-overflow: ellipsis; white-space: nowrap; }' +
+    '.label-address { display: -webkit-box; margin: 0.018in 0 0; overflow: hidden; font-size: 0.112in; font-weight: 700; line-height: 1.03; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }' +
     '.zebra-label:last-child { page-break-after: auto; break-after: auto; }' +
     '@media print { .print-note { display: none; } html, body { width: 2.25in !important; margin: 0 !important; padding: 0 !important; } .zebra-label { box-sizing: border-box !important; width: 2.25in !important; height: 1.25in !important; margin: 0 !important; overflow: hidden !important; } }' +
     '</style>' +
@@ -1523,12 +1523,21 @@ function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
     })
   }
 
+  const visibleDispatchOrders = dateGroups
+    .filter((group) => !isDateCollapsed(group.dateKey))
+    .flatMap((group) => group.orders)
+  const visibleDispatchIds = visibleDispatchOrders.map((order) => order.dbId || order.id)
+  const allVisibleSelected = visibleDispatchIds.length > 0 && visibleDispatchIds.every((orderId) => selectedIds.includes(orderId))
+
   function toggleOrder(orderId) {
     setSelectedIds((currentIds) => currentIds.includes(orderId) ? currentIds.filter((id) => id !== orderId) : [...currentIds, orderId])
   }
 
   function toggleAll() {
-    setSelectedIds((currentIds) => currentIds.length === dispatchOrders.length ? [] : dispatchOrders.map((order) => order.dbId || order.id))
+    setSelectedIds((currentIds) => {
+      if (allVisibleSelected) return currentIds.filter((orderId) => !visibleDispatchIds.includes(orderId))
+      return Array.from(new Set([...currentIds, ...visibleDispatchIds]))
+    })
   }
 
   async function handleSendOut() {
@@ -1555,7 +1564,7 @@ function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
       <PageHeader eyebrow="Office" title="Dispatch" subtitle="Assign New orders and send them out for delivery" />
       <div className="dispatch-panel">
         <div className="dispatch-toolbar">
-          <label className="dispatch-select-all"><input type="checkbox" checked={dispatchOrders.length > 0 && selectedIds.length === dispatchOrders.length} onChange={toggleAll} />Select all New orders</label>
+          <label className="dispatch-select-all"><input type="checkbox" checked={allVisibleSelected} disabled={!visibleDispatchIds.length} onChange={toggleAll} />Select all New orders</label>
           <label className="select-field"><span>Driver</span><select value={selectedDriver} onChange={(event) => setSelectedDriver(event.target.value)}><option value="">Choose driver</option>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index} value={getDriverName(driver)}>{getDriverName(driver)}</option>)}</select></label>
           <button className="primary-action" type="button" disabled={!selectedIds.length || !selectedDriver} onClick={handleSendOut}>Send Out for Delivery</button>
         </div>
