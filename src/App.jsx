@@ -282,7 +282,6 @@ function App() {
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [session, setSession] = useState(null)
   const [settings, setSettings] = useState(defaultSettings)
-  const [printOrders, setPrintOrders] = useState([])
   const [toast, setToast] = useState(null)
   const toastTimeoutRef = useRef(null)
 
@@ -295,8 +294,20 @@ function App() {
   function handlePrintSlips(ordersToPrint) {
     const printableOrders = (Array.isArray(ordersToPrint) ? ordersToPrint : [ordersToPrint]).filter(Boolean)
     if (!printableOrders.length) return
-    setPrintOrders(printableOrders)
-    window.setTimeout(() => window.print(), 120)
+
+    const printWindow = window.open('', 'gingerbread-labels', 'width=420,height=520')
+    if (!printWindow) {
+      showToast('Allow popups to print labels', 'error')
+      return
+    }
+
+    printWindow.document.open()
+    printWindow.document.write(buildLabelPrintDocument(printableOrders))
+    printWindow.document.close()
+    printWindow.focus()
+    printWindow.setTimeout(() => {
+      printWindow.print()
+    }, 150)
   }
 
   const safeDrivers = Array.isArray(drivers) ? drivers.filter(Boolean) : []
@@ -681,7 +692,6 @@ function App() {
           />
         </div>
       )}
-      {!!printOrders.length && <PrintSlips orders={printOrders} onClose={() => setPrintOrders([])} />}
       {toast && <Toast message={toast.message} type={toast.type} />}
       {!isDriverSession && <MobileNav activeView={activeView} setActiveView={setActiveView} />}
     </div>
@@ -690,28 +700,50 @@ function App() {
 
 
 
-function PrintSlips({ orders = [], onClose }) {
-  const printableOrders = Array.isArray(orders) ? orders : []
+function buildLabelPrintDocument(orders) {
+  const labels = orders.map((order) => [
+    '<section class="zebra-label">',
+    '<span class="label-kicker">ORDER #</span>',
+    '<strong class="label-order-number">' + escapeHtml(order?.id || '') + '</strong>',
+    '<span class="label-customer">' + escapeHtml(order?.customer || '') + '</span>',
+    '<p class="label-address">' + escapeHtml(order?.address || '') + '</p>',
+    '</section>',
+  ].join('')).join('')
 
-  return (
-    <div className="print-view">
-      <div className="print-controls">
-        <p>For Zebra labels, turn off browser print "Headers and footers".</p>
-        <div>
-          <button className="secondary-action" type="button" onClick={onClose}>Close</button>
-          <button className="primary-action" type="button" onClick={() => window.print()}>Print</button>
-        </div>
-      </div>
-      {printableOrders.map((order) => (
-        <section className="delivery-slip zebra-label" key={order.dbId || order.id}>
-          <span className="label-kicker">ORDER #</span>
-          <strong className="label-order-number">{order.id}</strong>
-          <span className="label-customer">{order.customer}</span>
-          <p className="label-address">{order.address}</p>
-        </section>
-      ))}
-    </div>
-  )
+  return '<!doctype html>' +
+    '<html>' +
+    '<head>' +
+    '<meta charset="utf-8" />' +
+    '<title>Gingerbread Delivery Labels</title>' +
+    '<style>' +
+    '@page { size: 2.25in 1.25in; margin: 0; }' +
+    'html, body { width: 2.25in; min-width: 0; margin: 0; padding: 0; overflow: visible; background: #ffffff; }' +
+    'body { color: #000000; font-family: Arial, Helvetica, sans-serif; }' +
+    '.print-note { box-sizing: border-box; width: 2.25in; margin: 0 0 0.12in; padding: 0.06in; color: #000000; font-size: 10px; line-height: 1.25; }' +
+    '.zebra-label { display: block; box-sizing: border-box; width: 2.25in; height: 1.25in; margin: 0; overflow: hidden; page-break-after: always; break-after: page; page-break-inside: avoid; break-inside: avoid; padding: 0.055in 0.075in; background: #ffffff; color: #000000; }' +
+    '.label-kicker, .label-order-number, .label-customer, .label-address { display: block; color: #000000; letter-spacing: 0; }' +
+    '.label-kicker { font-size: 0.095in; font-weight: 900; line-height: 1; }' +
+    '.label-order-number { margin-top: 0.005in; overflow: hidden; font-size: 0.255in; font-weight: 900; line-height: 0.95; text-overflow: ellipsis; white-space: nowrap; }' +
+    '.label-customer { margin-top: 0.025in; overflow: hidden; font-size: 0.13in; font-weight: 800; line-height: 1.05; text-overflow: ellipsis; white-space: nowrap; }' +
+    '.label-address { display: -webkit-box; margin: 0.02in 0 0; overflow: hidden; font-size: 0.102in; font-weight: 700; line-height: 1.05; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }' +
+    '.zebra-label:last-child { page-break-after: auto; break-after: auto; }' +
+    '@media print { .print-note { display: none; } html, body { width: 2.25in !important; margin: 0 !important; padding: 0 !important; } .zebra-label { box-sizing: border-box !important; width: 2.25in !important; height: 1.25in !important; margin: 0 !important; overflow: hidden !important; } }' +
+    '</style>' +
+    '</head>' +
+    '<body>' +
+    '<p class="print-note">For Zebra labels, turn off browser print &quot;Headers and footers&quot;.</p>' +
+    labels +
+    '</body>' +
+    '</html>'
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
 }
 
 function LoginScreen({ drivers, officePin, companyName, onLogin }) {
