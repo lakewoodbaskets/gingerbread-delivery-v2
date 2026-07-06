@@ -493,20 +493,17 @@ textarea:focus {
   display: block;
 }
 
-.signature-field,
 .delivery-proof-field {
   display: grid;
   gap: 10px;
 }
 
-.signature-field > span,
 .delivery-proof-field > span {
   color: #5f574f;
   font-size: 0.84rem;
   font-weight: 900;
 }
 
-.signature-preview,
 .proof-thumbnail {
   width: 100%;
   max-height: 150px;
@@ -516,20 +513,6 @@ textarea:focus {
   background: #fffdf9;
 }
 
-.signature-canvas {
-  width: 100%;
-  height: 150px;
-  border: 1px solid #e5ddd3;
-  border-radius: 8px;
-  background: #fffdf9;
-  touch-action: none;
-}
-
-.signature-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
 
 .drawer-actions,
 .form-actions {
@@ -935,13 +918,7 @@ textarea:focus {
 
 
 .delivery-proof-field,
-.signature-field {
-  display: grid;
-  gap: 8px;
-}
-
-.delivery-proof-field > span,
-.signature-field > span {
+.delivery-proof-field > span {
   color: #a85f32;
   font-size: 0.72rem;
   font-weight: 900;

@@ -15,7 +15,6 @@ const initialOrders = [
     receiver: '',
     failureReason: '',
     proofPhoto: '',
-    signature: '',
   },
   {
     id: 'GBD-1047',
@@ -29,7 +28,6 @@ const initialOrders = [
     receiver: '',
     failureReason: '',
     proofPhoto: '',
-    signature: '',
   },
   {
     id: 'GBD-1046',
@@ -43,7 +41,6 @@ const initialOrders = [
     receiver: 'Janet Moore',
     failureReason: '',
     proofPhoto: '',
-    signature: '',
   },
   {
     id: 'GBD-1045',
@@ -57,7 +54,6 @@ const initialOrders = [
     receiver: '',
     failureReason: 'No answer at delivery address',
     proofPhoto: '',
-    signature: '',
   },
   {
     id: 'GBD-1044',
@@ -71,7 +67,6 @@ const initialOrders = [
     receiver: 'Ari Kim',
     failureReason: '',
     proofPhoto: '',
-    signature: '',
   },
   {
     id: 'GBD-1043',
@@ -85,7 +80,6 @@ const initialOrders = [
     receiver: '',
     failureReason: '',
     proofPhoto: '',
-    signature: '',
   },
 ]
 
@@ -165,7 +159,6 @@ function mapDeliveryFromRow(row = {}) {
     receiver: row.receiver_name || '',
     failureReason: row.failed_reason || '',
     proofPhoto: row.proof_photo_url || '',
-    signature: row.signature_url || '',
     completedAt: row.completed_at || '',
     archivedAt: row.archived_at || '',
   }
@@ -183,7 +176,6 @@ function mapDeliveryToRow(order = {}) {
     notes: order.notes || '',
     receiver_name: order.status === 'Delivered' ? order.receiver || '' : '',
     proof_photo_url: order.status === 'Delivered' ? order.proofPhoto || '' : '',
-    signature_url: order.status === 'Delivered' ? order.signature || '' : '',
     failed_reason: order.status === 'Failed' ? order.failureReason || '' : '',
     completed_at: getCompletedAt(order),
     archived_at: order.archivedAt || order.archived_at || null,
@@ -874,7 +866,6 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
   const [saveMessage, setSaveMessage] = useState('')
   const [validationMessage, setValidationMessage] = useState('')
   const [isUploadingProof, setIsUploadingProof] = useState(false)
-  const [isUploadingSignature, setIsUploadingSignature] = useState(false)
   const isDriverMode = mode === 'driver'
   const canDriverEdit = !isDriverMode || order?.status === 'Out for Delivery'
   const driverStatusOptions = ['Out for Delivery', 'Delivered', 'Failed']
@@ -903,8 +894,8 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
       return
     }
 
-    if (isDriverMode && draft.status === 'Delivered' && (!draft.receiver.trim() || !draft.proofPhoto.trim() || !draft.signature.trim())) {
-      setValidationMessage('Receiver name, proof photo, and signature are required for delivered orders.')
+    if (isDriverMode && draft.status === 'Delivered' && (!draft.receiver.trim() || !draft.proofPhoto.trim())) {
+      setValidationMessage('Receiver name and proof photo are required for delivered orders.')
       return
     }
 
@@ -925,7 +916,6 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
         receiver: showReceiver ? draft.receiver : '',
         failureReason: showFailureReason ? draft.failureReason : '',
         proofPhoto: showProofFields ? draft.proofPhoto : '',
-        signature: showProofFields ? draft.signature : '',
       })
       setSaveMessage('Saved ✓')
       window.setTimeout(onClose, 1000)
@@ -975,43 +965,6 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
   }
 
 
-  async function handleSignatureCapture(dataUrl) {
-    if (!supabase) {
-      setValidationMessage('Supabase is not configured for signature upload.')
-      onToast('Upload failed', 'error')
-      return
-    }
-
-    setValidationMessage('')
-    setSaveMessage('')
-    setIsUploadingSignature(true)
-
-    try {
-      const response = await fetch(dataUrl)
-      const blob = await response.blob()
-      const safeOrderNumber = String(draft.id || order?.id || 'delivery').replace(/[^a-zA-Z0-9-_]/g, '-')
-      const filePath = safeOrderNumber + '/signature-' + Date.now() + '.png'
-      const { error: uploadError } = await supabase.storage
-        .from('delivery-proofs')
-        .upload(filePath, blob, { contentType: 'image/png', upsert: true })
-
-      if (uploadError) throw uploadError
-
-      const { data } = supabase.storage
-        .from('delivery-proofs')
-        .getPublicUrl(filePath)
-
-      updateDraft('signature', data.publicUrl)
-      onToast('Signature saved')
-    } catch (error) {
-      logSupabaseError('Failed to upload signature', error)
-      setValidationMessage(error?.message || 'Failed to upload signature.')
-      onToast('Upload failed', 'error')
-    } finally {
-      setIsUploadingSignature(false)
-    }
-  }
-
   function handleOpenMaps() {
     const mapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(draft.address)
     window.open(mapsUrl, '_blank', 'noopener,noreferrer')
@@ -1046,15 +999,6 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
               {isUploadingProof && <p>Uploading proof photo...</p>}
             </div>
           )}
-          {showProofFields && (
-            <SignaturePad
-              disabled={isDriverMode && !canDriverEdit}
-              isUploading={isUploadingSignature}
-              signatureUrl={draft.signature}
-              onCapture={handleSignatureCapture}
-              onClear={() => updateDraft('signature', '')}
-            />
-          )}
           {showFailureReason && <label>Failure Reason<textarea disabled={isDriverMode && !canDriverEdit} required value={draft.failureReason} onChange={(event) => updateDraft('failureReason', event.target.value)} rows="3" /></label>}
         </div>
         {isDriverMode && !canDriverEdit && <p className="drawer-message error-message">This delivery is read-only for drivers.</p>}
@@ -1068,99 +1012,6 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
         </div>
       </form>
     </aside>
-  )
-}
-
-function SignaturePad({ disabled, isUploading, signatureUrl, onCapture, onClear }) {
-  const canvasRef = useRef(null)
-  const [isDrawing, setIsDrawing] = useState(false)
-  const [hasInk, setHasInk] = useState(false)
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-
-    const rect = canvas.getBoundingClientRect()
-    const scale = window.devicePixelRatio || 1
-    canvas.width = Math.max(1, Math.floor(rect.width * scale))
-    canvas.height = Math.max(1, Math.floor(rect.height * scale))
-    const context = canvas.getContext('2d')
-    context.scale(scale, scale)
-    context.lineCap = 'round'
-    context.lineJoin = 'round'
-    context.lineWidth = 2.4
-    context.strokeStyle = '#1f1712'
-    context.fillStyle = '#fffdf9'
-    context.fillRect(0, 0, rect.width, rect.height)
-  }, [signatureUrl])
-
-  function getPoint(event) {
-    const canvas = canvasRef.current
-    const rect = canvas.getBoundingClientRect()
-    return {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    }
-  }
-
-  function startDrawing(event) {
-    if (disabled) return
-    event.preventDefault()
-    const canvas = canvasRef.current
-    const context = canvas.getContext('2d')
-    const point = getPoint(event)
-    context.beginPath()
-    context.moveTo(point.x, point.y)
-    setIsDrawing(true)
-    setHasInk(true)
-  }
-
-  function draw(event) {
-    if (!isDrawing || disabled) return
-    event.preventDefault()
-    const canvas = canvasRef.current
-    const context = canvas.getContext('2d')
-    const point = getPoint(event)
-    context.lineTo(point.x, point.y)
-    context.stroke()
-  }
-
-  function stopDrawing() {
-    setIsDrawing(false)
-  }
-
-  function clearSignature() {
-    const canvas = canvasRef.current
-    const context = canvas.getContext('2d')
-    const rect = canvas.getBoundingClientRect()
-    context.fillStyle = '#fffdf9'
-    context.fillRect(0, 0, rect.width, rect.height)
-    setHasInk(false)
-    onClear()
-  }
-
-  function saveSignature() {
-    if (!hasInk || disabled) return
-    onCapture(canvasRef.current.toDataURL('image/png'))
-  }
-
-  return (
-    <div className="signature-field">
-      <span>Signature Pad</span>
-      {signatureUrl && <img className="signature-preview" src={signatureUrl} alt="Saved signature" />}
-      <canvas
-        ref={canvasRef}
-        className="signature-canvas"
-        onPointerDown={startDrawing}
-        onPointerMove={draw}
-        onPointerUp={stopDrawing}
-        onPointerLeave={stopDrawing}
-      />
-      <div className="signature-actions">
-        <button className="secondary-action" disabled={disabled || isUploading} type="button" onClick={clearSignature}>Clear Signature</button>
-        <button className="secondary-action" disabled={disabled || isUploading || !hasInk} type="button" onClick={saveSignature}>{isUploading ? 'Uploading...' : 'Save Signature'}</button>
-      </div>
-    </div>
   )
 }
 
@@ -1195,7 +1046,6 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
     receiver: '',
     failureReason: '',
     proofPhoto: '',
-    signature: '',
   }
   const [draft, setDraft] = useState(emptyOrder)
   const showReceiver = draft.status === 'Delivered'
@@ -1214,7 +1064,6 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
       receiver: showReceiver ? draft.receiver : '',
       failureReason: showFailureReason ? draft.failureReason : '',
       proofPhoto: showReceiver ? draft.proofPhoto : '',
-      signature: showReceiver ? draft.signature : '',
     })
     setDraft(emptyOrder)
   }
@@ -1387,7 +1236,6 @@ function QuickEntry({ orders = [], onAddOrders }) {
         receiver: '',
         failureReason: '',
         proofPhoto: '',
-        signature: '',
       })
     })
 
@@ -1738,7 +1586,6 @@ function parseOrdersCsv(csvText, fallbackOrderNumber) {
       receiver: '',
       failureReason: '',
       proofPhoto: '',
-      signature: '',
     }
   }).filter((order) => order.customer || order.phone || order.address)
 
