@@ -747,12 +747,12 @@ function buildLabelPrintDocument(orders) {
     'html, body { width: 2.25in; min-width: 0; margin: 0; padding: 0; overflow: visible; background: #ffffff; }' +
     'body { color: #000000; font-family: Arial, Helvetica, sans-serif; }' +
     '.print-note { box-sizing: border-box; width: 2.25in; margin: 0 0 0.12in; padding: 0.06in; color: #000000; font-size: 10px; line-height: 1.25; }' +
-    '.zebra-label { display: block; box-sizing: border-box; width: 2.25in; height: 1.25in; margin: 0; overflow: hidden; page-break-after: always; break-after: page; page-break-inside: avoid; break-inside: avoid; padding: 0.075in 0.085in 0.055in; background: #ffffff; color: #000000; }' +
+    '.zebra-label { display: block; box-sizing: border-box; width: 2.25in; height: 1.25in; margin: 0; overflow: hidden; page-break-after: always; break-after: page; page-break-inside: avoid; break-inside: avoid; padding: 0.08in 0.08in 0.05in; background: #ffffff; color: #000000; }' +
     '.label-kicker, .label-order-number, .label-customer, .label-address { display: block; color: #000000; letter-spacing: 0; }' +
-    '.label-kicker { font-size: 0.105in; font-weight: 900; line-height: 1; }' +
-    '.label-order-number { margin-top: 0.008in; overflow: hidden; font-size: 0.28in; font-weight: 900; line-height: 0.92; text-overflow: ellipsis; white-space: nowrap; }' +
-    '.label-customer { margin-top: 0.025in; overflow: hidden; font-size: 0.145in; font-weight: 800; line-height: 1.02; text-overflow: ellipsis; white-space: nowrap; }' +
-    '.label-address { display: -webkit-box; margin: 0.018in 0 0; overflow: hidden; font-size: 0.112in; font-weight: 700; line-height: 1.03; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }' +
+    '.label-kicker { font-size: 0.1in; font-weight: 900; line-height: 1; }' +
+    '.label-order-number { margin-top: 0.006in; overflow: hidden; font-size: 0.3in; font-weight: 900; line-height: 0.9; text-overflow: ellipsis; white-space: nowrap; }' +
+    '.label-customer { margin-top: 0.022in; overflow: hidden; font-size: 0.17in; font-weight: 850; line-height: 0.98; text-overflow: ellipsis; white-space: nowrap; }' +
+    '.label-address { display: -webkit-box; margin: 0.018in 0 0; overflow: hidden; font-size: 0.13in; font-weight: 750; line-height: 0.98; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }' +
     '.zebra-label:last-child { page-break-after: auto; break-after: auto; }' +
     '@media print { .print-note { display: none; } html, body { width: 2.25in !important; margin: 0 !important; padding: 0 !important; } .zebra-label { box-sizing: border-box !important; width: 2.25in !important; height: 1.25in !important; margin: 0 !important; overflow: hidden !important; } }' +
     '</style>' +
@@ -1036,6 +1036,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
         phone: isDriverMode ? order.phone : draft.phone,
         address: isDriverMode ? order.address : draft.address,
         driver: isDriverMode ? order.driver : draft.driver,
+        deliveryDate: isDriverMode ? order.deliveryDate : draft.deliveryDate || getTodayDate(),
         notes: isDriverMode ? order.notes : draft.notes,
         receiver: showReceiver ? draft.receiver : '',
         failureReason: showFailureReason ? draft.failureReason : '',
@@ -1109,6 +1110,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
           {!isDriverMode && <label>Phone<input value={draft.phone} onChange={(event) => updateDraft('phone', event.target.value)} /></label>}
           {!isDriverMode && <label>Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} /></label>}
           {!isDriverMode && <label>Driver<select value={getDriverName(draft.driver)} onChange={(event) => updateDraft('driver', event.target.value)}><option value="">Unassigned</option>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index}>{getDriverName(driver)}</option>)}</select></label>}
+          {!isDriverMode && <label>Delivery Date<input type="date" value={draft.deliveryDate || getTodayDate()} onChange={(event) => updateDraft('deliveryDate', event.target.value)} /></label>}
           <label>Status<select disabled={isDriverMode && !canDriverEdit} value={draft.status} onChange={(event) => updateDraft('status', event.target.value)}>{statusChoices.map((option) => <option key={option}>{option}</option>)}</select></label>
           {!isDriverMode && <label>Notes<textarea value={draft.notes} onChange={(event) => updateDraft('notes', event.target.value)} rows="4" /></label>}
           {showReceiver && <label>Receiver Name<input disabled={isDriverMode && !canDriverEdit} required value={draft.receiver} onChange={(event) => updateDraft('receiver', event.target.value)} /></label>}
