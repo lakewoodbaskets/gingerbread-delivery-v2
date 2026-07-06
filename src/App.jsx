@@ -289,6 +289,14 @@ function App() {
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [session, setSession] = useState(null)
   const [settings, setSettings] = useState(defaultSettings)
+  const [toast, setToast] = useState(null)
+  const toastTimeoutRef = useRef(null)
+
+  function showToast(message, type = 'success') {
+    if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current)
+    setToast({ message, type })
+    toastTimeoutRef.current = window.setTimeout(() => setToast(null), 2600)
+  }
 
   const safeDrivers = Array.isArray(drivers) ? drivers.filter(Boolean) : []
 
@@ -328,9 +336,11 @@ function App() {
     try {
       const savedSettings = await saveSettings(nextSettings)
       setSettings(savedSettings)
+      showToast('Settings saved')
       return savedSettings
     } catch (error) {
       logSupabaseError('Failed to save settings', error)
+      showToast('Save failed', 'error')
       throw error
     }
   }
@@ -349,8 +359,10 @@ function App() {
       setStatus('All')
       setSelectedOrder(null)
       setActiveView('orders')
+      showToast('Order added')
     } catch (error) {
       logSupabaseError('Failed to add order', error)
+      showToast('Save failed', 'error')
       throw error
     }
   }
@@ -367,8 +379,10 @@ function App() {
       setOrders((currentOrders) => [...(data || []).map(mapDeliveryFromRow), ...currentOrders])
       setStatus('All')
       setActiveView('orders')
+      showToast('Order added')
     } catch (error) {
       logSupabaseError('Failed to import orders', error)
+      showToast('Save failed', 'error')
       throw error
     }
   }
@@ -393,8 +407,10 @@ function App() {
           delivered_time: savedOrder.completedAt || new Date().toISOString(),
         })
       }
+      showToast('Order saved')
     } catch (error) {
       logSupabaseError('Failed to update order', error)
+      showToast('Save failed', 'error')
       throw error
     }
   }
@@ -411,8 +427,10 @@ function App() {
       if (error) throw error
       setOrders((currentOrders) => currentOrders.filter((order) => order.dbId !== selectedOrder.dbId && order.id !== selectedOrder.id))
       setSelectedOrder(null)
+      showToast('Order deleted')
     } catch (error) {
       logSupabaseError('Failed to delete order', error)
+      showToast('Save failed', 'error')
       throw error
     }
   }
@@ -428,8 +446,10 @@ function App() {
 
       if (error) throw error
       setDrivers((currentDrivers) => [...currentDrivers, mapDriverFromRow(data)])
+      showToast('Driver saved')
     } catch (error) {
       logSupabaseError('Failed to add driver', error)
+      showToast('Save failed', 'error')
       throw error
     }
   }
@@ -437,6 +457,7 @@ function App() {
   async function handleUpdateDriver(originalName, updatedDriver) {
     if (!supabase) {
       logSupabaseError('Failed to update driver', new Error('Missing Supabase environment variables'))
+      showToast('Save failed', 'error')
       return
     }
     const existingDriver = safeDrivers.find((driver) => (driver?.name || '') === originalName)
@@ -450,8 +471,10 @@ function App() {
       const savedDriver = mapDriverFromRow(data)
       setDrivers((currentDrivers) => currentDrivers.map((driver) => driver?.dbId === savedDriver?.dbId || (driver?.name || '') === originalName ? savedDriver : driver))
       setOrders((currentOrders) => currentOrders.map((order) => getDriverName(order.driver) === originalName ? { ...order, driver: getDriverName(savedDriver) } : order))
+      showToast('Driver saved')
     } catch (error) {
       logSupabaseError('Failed to update driver', error)
+      showToast('Save failed', 'error')
       throw error
     }
   }
@@ -460,6 +483,7 @@ function App() {
     if (!window.confirm('Delete this driver?')) return
     if (!supabase) {
       logSupabaseError('Failed to delete driver', new Error('Missing Supabase environment variables'))
+      showToast('Save failed', 'error')
       return
     }
     const existingDriver = safeDrivers.find((driver) => (driver?.name || '') === driverName)
@@ -472,8 +496,10 @@ function App() {
       if (error) throw error
       setDrivers((currentDrivers) => currentDrivers.filter((driver) => driver?.dbId !== existingDriver?.dbId && (driver?.name || '') !== driverName))
       setOrders((currentOrders) => currentOrders.map((order) => getDriverName(order.driver) === driverName ? { ...order, driver: '' } : order))
+      showToast('Driver deleted')
     } catch (error) {
       logSupabaseError('Failed to delete driver', error)
+      showToast('Save failed', 'error')
       throw error
     }
   }
@@ -587,9 +613,11 @@ function App() {
             mode={isDriverSession ? 'driver' : 'office'}
             onSave={handleSaveOrder}
             onDelete={isDriverSession ? null : handleDeleteOrder}
+            onToast={showToast}
           />
         </div>
       )}
+      {toast && <Toast message={toast.message} type={toast.type} />}
       {!isDriverSession && <MobileNav activeView={activeView} setActiveView={setActiveView} />}
     </div>
   )
@@ -781,7 +809,7 @@ function OrderCard({ order, onClick }) {
   )
 }
 
-function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, onDelete }) {
+function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, onDelete, onToast = () => {} }) {
   const [draft, setDraft] = useState(order)
   const availableDrivers = Array.isArray(drivers) ? drivers : []
   const [saveMessage, setSaveMessage] = useState('')
@@ -826,21 +854,25 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
       return
     }
 
-    await onSave({
-      ...draft,
-      id: isDriverMode ? order.id : draft.id,
-      customer: isDriverMode ? order.customer : draft.customer,
-      phone: isDriverMode ? order.phone : draft.phone,
-      address: isDriverMode ? order.address : draft.address,
-      driver: isDriverMode ? order.driver : draft.driver,
-      notes: isDriverMode ? order.notes : draft.notes,
-      receiver: showReceiver ? draft.receiver : '',
-      failureReason: showFailureReason ? draft.failureReason : '',
-      proofPhoto: showProofFields ? draft.proofPhoto : '',
-      signature: showProofFields ? draft.signature : '',
-    })
-    setSaveMessage('Saved ✓')
-    window.setTimeout(onClose, 1000)
+    try {
+      await onSave({
+        ...draft,
+        id: isDriverMode ? order.id : draft.id,
+        customer: isDriverMode ? order.customer : draft.customer,
+        phone: isDriverMode ? order.phone : draft.phone,
+        address: isDriverMode ? order.address : draft.address,
+        driver: isDriverMode ? order.driver : draft.driver,
+        notes: isDriverMode ? order.notes : draft.notes,
+        receiver: showReceiver ? draft.receiver : '',
+        failureReason: showFailureReason ? draft.failureReason : '',
+        proofPhoto: showProofFields ? draft.proofPhoto : '',
+        signature: showProofFields ? draft.signature : '',
+      })
+      setSaveMessage('Saved ✓')
+      window.setTimeout(onClose, 1000)
+    } catch (error) {
+      setValidationMessage(error?.message || 'Failed to save changes.')
+    }
   }
 
   async function handleProofPhotoChange(event) {
@@ -850,6 +882,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
 
     if (!supabase) {
       setValidationMessage('Supabase is not configured for proof photo upload.')
+      onToast('Upload failed', 'error')
       return
     }
 
@@ -872,9 +905,11 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
         .getPublicUrl(filePath)
 
       updateDraft('proofPhoto', data.publicUrl)
+      onToast('Photo uploaded')
     } catch (error) {
       logSupabaseError('Failed to upload proof photo', error)
       setValidationMessage(error?.message || 'Failed to upload proof photo.')
+      onToast('Upload failed', 'error')
     } finally {
       setIsUploadingProof(false)
     }
@@ -884,6 +919,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
   async function handleSignatureCapture(dataUrl) {
     if (!supabase) {
       setValidationMessage('Supabase is not configured for signature upload.')
+      onToast('Upload failed', 'error')
       return
     }
 
@@ -907,9 +943,11 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
         .getPublicUrl(filePath)
 
       updateDraft('signature', data.publicUrl)
+      onToast('Signature saved')
     } catch (error) {
       logSupabaseError('Failed to upload signature', error)
       setValidationMessage(error?.message || 'Failed to upload signature.')
+      onToast('Upload failed', 'error')
     } finally {
       setIsUploadingSignature(false)
     }
@@ -1063,6 +1101,14 @@ function SignaturePad({ disabled, isUploading, signatureUrl, onCapture, onClear 
         <button className="secondary-action" disabled={disabled || isUploading} type="button" onClick={clearSignature}>Clear Signature</button>
         <button className="secondary-action" disabled={disabled || isUploading || !hasInk} type="button" onClick={saveSignature}>{isUploading ? 'Uploading...' : 'Save Signature'}</button>
       </div>
+    </div>
+  )
+}
+
+function Toast({ message, type }) {
+  return (
+    <div className={'toast-message ' + (type === 'error' ? 'error' : 'success')} role="status" aria-live="polite">
+      {message}
     </div>
   )
 }
