@@ -100,6 +100,7 @@ const navItems = [
   { id: 'orders', label: 'All Orders', mobile: 'Orders' },
   { id: 'add', label: 'Add Order', mobile: 'Add' },
   { id: 'upload', label: 'Upload Orders', mobile: 'Upload' },
+  { id: 'quick', label: 'Quick Entry' },
   { id: 'drivers', label: 'Drivers', mobile: 'Drivers' },
   { id: 'history', label: 'History', mobile: 'History' },
   { id: 'settings', label: 'Settings' },
@@ -367,7 +368,7 @@ function App() {
     }
   }
 
-  async function handleAddOrders(previewOrders) {
+  async function handleAddOrders(previewOrders, options = {}) {
     try {
       if (!supabase) throw new Error('Missing Supabase environment variables')
       const { data, error } = await supabase
@@ -378,7 +379,7 @@ function App() {
       if (error) throw error
       setOrders((currentOrders) => [...(data || []).map(mapDeliveryFromRow), ...currentOrders])
       setStatus('All')
-      setActiveView('orders')
+      if (!options.stayOnPage) setActiveView('orders')
       showToast('Order added')
     } catch (error) {
       logSupabaseError('Failed to import orders', error)
@@ -591,6 +592,7 @@ function App() {
         )}
         {!isDriverSession && activeView === 'add' && <AddOrder drivers={safeDrivers} onAddOrder={handleAddOrder} nextOrderNumber={getNextOrderNumber(orders)} />}
         {!isDriverSession && activeView === 'upload' && <UploadOrders onAddOrders={handleAddOrders} nextOrderNumber={getNextOrderNumber(orders)} />}
+        {!isDriverSession && activeView === 'quick' && <QuickEntry orders={orders} onAddOrders={handleAddOrders} />}
         {!isDriverSession && activeView === 'drivers' && (
           <Drivers
             drivers={safeDrivers}
@@ -1246,6 +1248,181 @@ function UploadOrders({ onAddOrders, nextOrderNumber }) {
           {previewOrders.map((order) => <OrderCard key={order.id} order={order} onClick={() => {}} />)}
         </div>
         <button className="primary-action add-preview-action" type="button" onClick={handleAddPreviewedOrders}>Add Previewed Orders</button>
+      </div>
+    </section>
+  )
+}
+
+
+function createQuickEntryRows(count) {
+  return Array.from({ length: count }, () => ({ orderNo: '', customer: '', phone: '', address: '', notes: '' }))
+}
+
+function isQuickRowEmpty(row) {
+  return !['orderNo', 'customer', 'phone', 'address', 'notes'].some((field) => String(row?.[field] || '').trim())
+}
+
+function QuickEntry({ orders = [], onAddOrders }) {
+  const columns = [
+    { key: 'orderNo', label: 'Order #' },
+    { key: 'customer', label: 'Customer Name' },
+    { key: 'phone', label: 'Phone' },
+    { key: 'address', label: 'Address' },
+    { key: 'notes', label: 'Notes' },
+  ]
+  const requiredFields = ['orderNo', 'customer', 'phone', 'address']
+  const [rows, setRows] = useState(() => createQuickEntryRows(20))
+  const [summary, setSummary] = useState({ imported: 0, skipped: 0 })
+  const [saving, setSaving] = useState(false)
+  const existingOrderNumbers = useMemo(() => new Set((Array.isArray(orders) ? orders : []).map((order) => String(order?.id || '').trim().toLowerCase()).filter(Boolean)), [orders])
+  const duplicateOrderNumbers = useMemo(() => {
+    const seen = new Set()
+    const duplicates = new Set()
+
+    rows.forEach((row) => {
+      const orderNo = String(row.orderNo || '').trim().toLowerCase()
+      if (!orderNo) return
+      if (existingOrderNumbers.has(orderNo) || seen.has(orderNo)) duplicates.add(orderNo)
+      seen.add(orderNo)
+    })
+
+    return duplicates
+  }, [existingOrderNumbers, rows])
+
+  function updateCell(rowIndex, field, value) {
+    setRows((currentRows) => {
+      const nextRows = currentRows.map((row, index) => index === rowIndex ? { ...row, [field]: value } : row)
+      if (rowIndex >= nextRows.length - 3) nextRows.push(...createQuickEntryRows(10))
+      return nextRows
+    })
+  }
+
+  function focusCell(rowIndex, columnIndex) {
+    window.requestAnimationFrame(() => {
+      const input = document.querySelector('[data-quick-row="' + rowIndex + '"][data-quick-col="' + columnIndex + '"]')
+      input?.focus()
+    })
+  }
+
+  function handleKeyDown(event, rowIndex, columnIndex) {
+    if (event.key !== 'Enter') return
+    event.preventDefault()
+    const nextRowIndex = rowIndex + 1
+    if (nextRowIndex >= rows.length) {
+      setRows((currentRows) => [...currentRows, ...createQuickEntryRows(10)])
+    }
+    focusCell(nextRowIndex, columnIndex)
+  }
+
+  function handlePaste(event, rowIndex, columnIndex) {
+    const pastedText = event.clipboardData.getData('text')
+    if (!pastedText || (!pastedText.includes('\t') && !pastedText.includes('\n') && !pastedText.includes('\r'))) return
+
+    event.preventDefault()
+    const pastedRows = pastedText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter((line, index, allRows) => line || index < allRows.length - 1)
+    const parsedRows = pastedRows.map((line) => line.split('\t'))
+
+    setRows((currentRows) => {
+      const neededRows = rowIndex + parsedRows.length
+      const nextRows = [...currentRows]
+      while (nextRows.length < neededRows) nextRows.push(...createQuickEntryRows(10))
+
+      parsedRows.forEach((cells, pasteRowIndex) => {
+        const targetRowIndex = rowIndex + pasteRowIndex
+        const nextRow = { ...nextRows[targetRowIndex] }
+        cells.forEach((cell, pasteColumnIndex) => {
+          const targetColumn = columns[columnIndex + pasteColumnIndex]
+          if (targetColumn) nextRow[targetColumn.key] = cell.trim()
+        })
+        nextRows[targetRowIndex] = nextRow
+      })
+
+      if (neededRows >= nextRows.length - 3) nextRows.push(...createQuickEntryRows(10))
+      return nextRows
+    })
+  }
+
+  function getCellClass(row, field) {
+    const orderNo = String(row.orderNo || '').trim().toLowerCase()
+    if (field === 'orderNo' && orderNo && duplicateOrderNumbers.has(orderNo)) return 'quick-cell duplicate'
+    if (!isQuickRowEmpty(row) && requiredFields.includes(field) && !String(row[field] || '').trim()) return 'quick-cell missing'
+    return 'quick-cell'
+  }
+
+  async function handleSaveAll() {
+    const ordersToImport = []
+    let skipped = 0
+
+    rows.forEach((row) => {
+      if (isQuickRowEmpty(row)) return
+      const orderNo = String(row.orderNo || '').trim()
+      const normalizedOrderNo = orderNo.toLowerCase()
+      const hasMissingRequired = requiredFields.some((field) => !String(row[field] || '').trim())
+      const isDuplicate = normalizedOrderNo && duplicateOrderNumbers.has(normalizedOrderNo)
+
+      if (hasMissingRequired || isDuplicate) {
+        skipped += 1
+        return
+      }
+
+      ordersToImport.push({
+        id: orderNo,
+        customer: String(row.customer || '').trim(),
+        phone: String(row.phone || '').trim(),
+        address: String(row.address || '').trim(),
+        driver: '',
+        time: 'Quick Entry',
+        status: 'New',
+        notes: String(row.notes || '').trim(),
+        receiver: '',
+        failureReason: '',
+        proofPhoto: '',
+        signature: '',
+      })
+    })
+
+    setSummary({ imported: 0, skipped })
+    if (!ordersToImport.length) return
+
+    try {
+      setSaving(true)
+      await onAddOrders(ordersToImport, { stayOnPage: true })
+      setSummary({ imported: ordersToImport.length, skipped })
+      setRows(createQuickEntryRows(20))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="single-view quick-entry-view">
+      <PageHeader eyebrow="Office" title="Quick Entry" subtitle="Paste or type orders in a spreadsheet-style grid" />
+      <div className="quick-entry-panel">
+        <div className="quick-entry-toolbar">
+          <div>
+            <strong>Imported: {summary.imported} orders</strong>
+            <span>Skipped: {summary.skipped} rows</span>
+          </div>
+          <button className="primary-action" type="button" disabled={saving} onClick={handleSaveAll}>{saving ? 'Saving...' : 'Save All'}</button>
+        </div>
+        <div className="quick-grid-wrap">
+          <div className="quick-grid" style={{ gridTemplateColumns: '104px 190px 150px minmax(260px, 1fr) minmax(220px, 0.8fr)' }}>
+            {columns.map((column) => <div className="quick-header" key={column.key}>{column.label}</div>)}
+            {rows.map((row, rowIndex) => columns.map((column, columnIndex) => (
+              <input
+                className={getCellClass(row, column.key)}
+                data-quick-row={rowIndex}
+                data-quick-col={columnIndex}
+                key={column.key + '-' + rowIndex}
+                value={row[column.key]}
+                onChange={(event) => updateCell(rowIndex, column.key, event.target.value)}
+                onKeyDown={(event) => handleKeyDown(event, rowIndex, columnIndex)}
+                onPaste={(event) => handlePaste(event, rowIndex, columnIndex)}
+                aria-label={column.label + ' row ' + (rowIndex + 1)}
+              />
+            )))}
+          </div>
+        </div>
       </div>
     </section>
   )
