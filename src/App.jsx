@@ -103,6 +103,7 @@ const navItems = [
 const statusOptions = ['All', 'New', 'Out for Delivery', 'Delivered', 'Failed']
 const editableStatusOptions = statusOptions.filter((option) => option !== 'All')
 const sortOptions = ['Newest First', 'Oldest First', 'Customer A-Z', 'Customer Z-A']
+const dateFilterOptions = ['Today', 'Tomorrow', 'Future', 'All']
 
 const defaultSettings = {
   companyName: 'Gingerbread Delivery',
@@ -125,8 +126,28 @@ function getDriverName(driverValue) {
   return ''
 }
 
+function getTodayDate() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function getOffsetDate(days) {
+  const date = new Date()
+  date.setDate(date.getDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
 function getDeliveryDate(order) {
-  return order?.deliveryDate || order?.delivery_date || new Date().toISOString().slice(0, 10)
+  return order?.deliveryDate || order?.delivery_date || getTodayDate()
+}
+
+function matchesDateFilter(order, filter) {
+  const deliveryDate = getDeliveryDate(order)
+  const today = getTodayDate()
+  const tomorrow = getOffsetDate(1)
+  if (filter === 'Today') return deliveryDate === today
+  if (filter === 'Tomorrow') return deliveryDate === tomorrow
+  if (filter === 'Future') return deliveryDate > tomorrow
+  return true
 }
 
 function getCompletedAt(order) {
@@ -279,6 +300,7 @@ function App() {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('All')
   const [sort, setSort] = useState('Newest First')
+  const [dateFilter, setDateFilter] = useState('Today')
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [session, setSession] = useState(null)
   const [settings, setSettings] = useState(defaultSettings)
@@ -584,52 +606,49 @@ function App() {
     }
   }
 
-  const counts = useMemo(() => {
-    return statusOptions.reduce((acc, option) => {
-      acc[option] = option === 'All' ? orders.length : orders.filter((order) => order.status === option).length
-      return acc
-    }, {})
-  }, [orders])
-
-  const visibleOrders = useMemo(() => {
+  const sortedSearchOrders = useMemo(() => {
     const normalized = query.trim().toLowerCase()
     return orders
-      .filter((order) => status === 'All' || order.status === status)
       .filter((order) => {
         if (!normalized) return true
         return [order.customer, order.phone, order.address, getDriverName(order.driver), order.id].some((value) =>
-          value.toLowerCase().includes(normalized),
+          String(value || '').toLowerCase().includes(normalized),
         )
       })
       .sort((a, b) => {
         if (sort === 'Customer A-Z') return a.customer.localeCompare(b.customer)
         if (sort === 'Customer Z-A') return b.customer.localeCompare(a.customer)
-        if (sort === 'Oldest First') return a.id.localeCompare(b.id)
-        return b.id.localeCompare(a.id)
+        if (sort === 'Oldest First') return getDeliveryDate(a).localeCompare(getDeliveryDate(b)) || a.id.localeCompare(b.id)
+        return getDeliveryDate(b).localeCompare(getDeliveryDate(a)) || b.id.localeCompare(a.id)
       })
-  }, [orders, query, status, sort])
+  }, [orders, query, sort])
 
   const isDriverSession = session?.role === 'driver'
-  const driverOrders = useMemo(() => {
-    if (!isDriverSession) return visibleOrders
-    const driverName = getDriverName(session.driver)
-    return visibleOrders.filter((order) => order.status === 'Out for Delivery' && getDriverName(order.driver) === driverName)
-  }, [isDriverSession, session, visibleOrders])
+  const officeDateOrders = useMemo(() => {
+    return sortedSearchOrders.filter((order) => matchesDateFilter(order, dateFilter))
+  }, [dateFilter, sortedSearchOrders])
 
-  const dashboardOrders = isDriverSession ? driverOrders : visibleOrders
+  const driverOrders = useMemo(() => {
+    if (!isDriverSession) return []
+    const driverName = getDriverName(session.driver)
+    return sortedSearchOrders.filter((order) => order.status === 'Out for Delivery' && getDriverName(order.driver) === driverName)
+  }, [isDriverSession, session, sortedSearchOrders])
+
+  const dashboardBaseOrders = isDriverSession ? driverOrders : officeDateOrders
+  const dashboardOrders = dashboardBaseOrders.filter((order) => status === 'All' || order.status === status)
   const dashboardCounts = useMemo(() => {
-    if (!isDriverSession) return counts
     return statusOptions.reduce((acc, option) => {
-      acc[option] = option === 'All' ? driverOrders.length : driverOrders.filter((order) => order.status === option).length
+      acc[option] = option === 'All' ? dashboardBaseOrders.length : dashboardBaseOrders.filter((order) => order.status === option).length
       return acc
     }, {})
-  }, [counts, driverOrders, isDriverSession])
+  }, [dashboardBaseOrders])
   const handleLogout = () => {
     setSession(null)
     setSelectedOrder(null)
     setActiveView('orders')
     setQuery('')
     setStatus('All')
+    setDateFilter('Today')
   }
 
   const showDrawer = selectedOrder && (activeView === 'orders' || activeView === 'history')
@@ -654,6 +673,9 @@ function App() {
             setStatus={setStatus}
             sort={sort}
             setSort={setSort}
+            dateFilter={dateFilter}
+            setDateFilter={setDateFilter}
+            showDateFilter={!isDriverSession}
             counts={dashboardCounts}
             visibleOrders={dashboardOrders}
             setSelectedOrder={setSelectedOrder}
@@ -860,7 +882,7 @@ function PageHeader({ eyebrow, title, subtitle }) {
   )
 }
 
-function OrdersDashboard({ query, setQuery, status, setStatus, sort, setSort, counts, visibleOrders, setSelectedOrder, drivers = [], isOffice = false, onDispatchOrders }) {
+function OrdersDashboard({ query, setQuery, status, setStatus, sort, setSort, dateFilter, setDateFilter, showDateFilter = true, counts, visibleOrders, setSelectedOrder, drivers = [], isOffice = false, onDispatchOrders }) {
   return (
     <section className="dashboard-view">
       <PageHeader eyebrow="Dispatch dashboard" title="Gingerbread Delivery" subtitle="Delivery management" />
@@ -885,6 +907,14 @@ function OrdersDashboard({ query, setQuery, status, setStatus, sort, setSort, co
             {sortOptions.map((option) => <option key={option}>{option}</option>)}
           </select>
         </label>
+        {showDateFilter && (
+          <label className="select-field">
+            <span>Delivery Date</span>
+            <select value={dateFilter} onChange={(event) => setDateFilter(event.target.value)}>
+              {dateFilterOptions.map((option) => <option key={option}>{option}</option>)}
+            </select>
+          </label>
+        )}
       </div>
       <div className="counter-grid">
         {statusOptions.map((option) => (
@@ -1131,6 +1161,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
     address: '',
     driver: '',
     time: 'Today, 2:00 PM',
+    deliveryDate: getTodayDate(),
     status: 'New',
     notes: '',
     receiver: '',
@@ -1150,6 +1181,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
     await onAddOrder({
       ...draft,
       driver: getDriverName(draft.driver),
+      deliveryDate: draft.deliveryDate || getTodayDate(),
       status: 'New',
       receiver: showReceiver ? draft.receiver : '',
       failureReason: showFailureReason ? draft.failureReason : '',
@@ -1168,6 +1200,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
           <label>Phone<input value={draft.phone} onChange={(event) => updateDraft('phone', event.target.value)} placeholder="Phone number" /></label>
           <label className="wide">Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} placeholder="Street, city, state" /></label>
           <label>Driver<select value={getDriverName(draft.driver)} onChange={(event) => updateDraft('driver', event.target.value)}><option value="">Unassigned</option>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index}>{getDriverName(driver)}</option>)}</select></label>
+          <label>Delivery Date<input type="date" value={draft.deliveryDate || getTodayDate()} onChange={(event) => updateDraft('deliveryDate', event.target.value)} /></label>
           <label>Delivery time<input value={draft.time} onChange={(event) => updateDraft('time', event.target.value)} placeholder="Today, 2:00 PM" /></label>
           <label className="wide">Notes<textarea value={draft.notes} onChange={(event) => updateDraft('notes', event.target.value)} placeholder="Delivery instructions" rows="4" /></label>
           {showReceiver && <label>Receiver Name<input value={draft.receiver} onChange={(event) => updateDraft('receiver', event.target.value)} placeholder="Receiver name" /></label>}
@@ -1183,7 +1216,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
 }
 
 function createQuickEntryRows(count) {
-  return Array.from({ length: count }, () => ({ orderNo: '', customer: '', phone: '', address: '', notes: '' }))
+  return Array.from({ length: count }, () => ({ deliveryDate: '', orderNo: '', customer: '', phone: '', address: '', notes: '' }))
 }
 
 function isQuickRowEmpty(row) {
@@ -1192,6 +1225,7 @@ function isQuickRowEmpty(row) {
 
 function QuickEntry({ orders = [], onAddOrders }) {
   const columns = [
+    { key: 'deliveryDate', label: 'Delivery Date' },
     { key: 'orderNo', label: 'Order #' },
     { key: 'customer', label: 'Customer Name' },
     { key: 'phone', label: 'Phone' },
@@ -1316,6 +1350,7 @@ function QuickEntry({ orders = [], onAddOrders }) {
 
       ordersToImport.push({
         id: orderNo,
+        deliveryDate: String(row.deliveryDate || '').trim() || getTodayDate(),
         customer: String(row.customer || '').trim(),
         phone: String(row.phone || '').trim(),
         address: String(row.address || '').trim(),
@@ -1361,7 +1396,7 @@ function QuickEntry({ orders = [], onAddOrders }) {
           </div>
         </div>
         <div className="quick-grid-wrap">
-          <div className="quick-grid" style={{ gridTemplateColumns: '104px 190px 150px minmax(260px, 1fr) minmax(220px, 0.8fr)' }}>
+          <div className="quick-grid" style={{ gridTemplateColumns: '130px 104px 190px 150px minmax(260px, 1fr) minmax(220px, 0.8fr)' }}>
             {columns.map((column) => <div className="quick-header" key={column.key}>{column.label}</div>)}
             {rows.map((row, rowIndex) => columns.map((column, columnIndex) => (
               <input
@@ -1420,17 +1455,19 @@ function quickRowsFromTable(tableRows) {
 
   return dataRows
     .map((row) => ({
-      orderNo: hasHeaderRow ? cellValue(row, headerMap.orderNo) : cellValue(row, 0),
-      customer: hasHeaderRow ? cellValue(row, headerMap.customer) : cellValue(row, 1),
-      phone: hasHeaderRow ? cellValue(row, headerMap.phone) : cellValue(row, 2),
-      address: hasHeaderRow ? cellValue(row, headerMap.address) : cellValue(row, 3),
-      notes: hasHeaderRow ? cellValue(row, headerMap.notes) : cellValue(row, 4),
+      deliveryDate: hasHeaderRow ? cellValue(row, headerMap.deliveryDate) : cellValue(row, 0),
+      orderNo: hasHeaderRow ? cellValue(row, headerMap.orderNo) : cellValue(row, 1),
+      customer: hasHeaderRow ? cellValue(row, headerMap.customer) : cellValue(row, 2),
+      phone: hasHeaderRow ? cellValue(row, headerMap.phone) : cellValue(row, 3),
+      address: hasHeaderRow ? cellValue(row, headerMap.address) : cellValue(row, 4),
+      notes: hasHeaderRow ? cellValue(row, headerMap.notes) : cellValue(row, 5),
     }))
     .filter((row) => !isQuickRowEmpty(row))
 }
 
 function getQuickEntryHeaderMap(headers) {
   return {
+    deliveryDate: findHeaderIndex(headers, ['delivery_date', 'delivery date', 'date']),
     orderNo: findHeaderIndex(headers, ['order #', 'order#', 'order_no', 'order no', 'order number', 'order']),
     customer: findHeaderIndex(headers, ['customer name', 'customer_name', 'customer', 'name']),
     phone: findHeaderIndex(headers, ['phone', 'phone number', 'customer phone']),
@@ -1449,6 +1486,9 @@ function normalizeHeader(value) {
 
 function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
   const newOrders = (Array.isArray(orders) ? orders : []).filter((order) => order.status === 'New')
+  const todayOrders = newOrders.filter((order) => matchesDateFilter(order, 'Today'))
+  const otherNewOrders = newOrders.filter((order) => !matchesDateFilter(order, 'Today')).sort((a, b) => getDeliveryDate(a).localeCompare(getDeliveryDate(b)) || a.id.localeCompare(b.id))
+  const dispatchOrders = [...todayOrders, ...otherNewOrders]
   const availableDrivers = (Array.isArray(drivers) ? drivers : []).filter((driver) => (driver?.status || 'Active') === 'Active')
   const [selectedIds, setSelectedIds] = useState([])
   const [selectedDriver, setSelectedDriver] = useState('')
@@ -1458,7 +1498,7 @@ function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
   }
 
   function toggleAll() {
-    setSelectedIds((currentIds) => currentIds.length === newOrders.length ? [] : newOrders.map((order) => order.dbId || order.id))
+    setSelectedIds((currentIds) => currentIds.length === dispatchOrders.length ? [] : dispatchOrders.map((order) => order.dbId || order.id))
   }
 
   async function handleSendOut() {
@@ -1466,30 +1506,35 @@ function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
     if (dispatched) setSelectedIds([])
   }
 
+  function renderDispatchRow(order) {
+    const orderId = order.dbId || order.id
+    return (
+      <label className="dispatch-row" key={orderId}>
+        <input type="checkbox" checked={selectedIds.includes(orderId)} onChange={() => toggleOrder(orderId)} />
+        <div>
+          <strong>{order.id}</strong>
+          <span>{order.customer}</span>
+        </div>
+        <p>{order.address}</p>
+      </label>
+    )
+  }
+
   return (
     <section className="single-view dispatch-view">
       <PageHeader eyebrow="Office" title="Dispatch" subtitle="Assign New orders and send them out for delivery" />
       <div className="dispatch-panel">
         <div className="dispatch-toolbar">
-          <label className="dispatch-select-all"><input type="checkbox" checked={newOrders.length > 0 && selectedIds.length === newOrders.length} onChange={toggleAll} />Select all New orders</label>
+          <label className="dispatch-select-all"><input type="checkbox" checked={dispatchOrders.length > 0 && selectedIds.length === dispatchOrders.length} onChange={toggleAll} />Select all New orders</label>
           <label className="select-field"><span>Driver</span><select value={selectedDriver} onChange={(event) => setSelectedDriver(event.target.value)}><option value="">Choose driver</option>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index} value={getDriverName(driver)}>{getDriverName(driver)}</option>)}</select></label>
           <button className="primary-action" type="button" disabled={!selectedIds.length || !selectedDriver} onClick={handleSendOut}>Send Out for Delivery</button>
         </div>
         <div className="dispatch-list">
-          {newOrders.map((order) => {
-            const orderId = order.dbId || order.id
-            return (
-              <label className="dispatch-row" key={orderId}>
-                <input type="checkbox" checked={selectedIds.includes(orderId)} onChange={() => toggleOrder(orderId)} />
-                <div>
-                  <strong>{order.id}</strong>
-                  <span>{order.customer}</span>
-                </div>
-                <p>{order.address}</p>
-              </label>
-            )
-          })}
-          {!newOrders.length && <p className="empty-state">No New orders are waiting for dispatch.</p>}
+          <div className="dispatch-group-heading">Ready for Today</div>
+          {todayOrders.map(renderDispatchRow)}
+          {!!otherNewOrders.length && <div className="dispatch-group-heading">Future Orders</div>}
+          {otherNewOrders.map(renderDispatchRow)}
+          {!dispatchOrders.length && <p className="empty-state">No New orders are waiting for dispatch.</p>}
         </div>
       </div>
     </section>
@@ -1653,7 +1698,7 @@ function parseOrdersCsv(csvText, fallbackOrderNumber) {
   }
 
   const headers = rows[0].map((header) => header.trim().toLowerCase())
-  const expectedHeaders = ['order_no', 'customer_name', 'phone', 'address', 'driver', 'notes']
+  const expectedHeaders = ['order_no', 'customer_name', 'phone', 'address']
   const missingHeaders = expectedHeaders.filter((header) => !headers.includes(header))
 
   if (missingHeaders.length) {
@@ -1666,6 +1711,7 @@ function parseOrdersCsv(csvText, fallbackOrderNumber) {
     const orderNumber = cellValue(row, headerIndex.order_no) || 'GBD-' + String(fallbackBase + index)
     return {
       id: orderNumber,
+      deliveryDate: cellValue(row, headerIndex.delivery_date) || getTodayDate(),
       customer: cellValue(row, headerIndex.customer_name),
       phone: cellValue(row, headerIndex.phone),
       address: cellValue(row, headerIndex.address),

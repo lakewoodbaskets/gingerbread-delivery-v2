@@ -172,7 +172,7 @@ button {
 
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) 176px 164px;
+  grid-template-columns: minmax(260px, 1fr) 156px 156px 156px;
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -1395,4 +1395,15 @@ textarea:focus {
   min-height: 42px;
   place-items: center;
   padding: 0 16px;
+}
+
+.dispatch-group-heading {
+  border-bottom: 1px solid #eee7df;
+  background: #fffaf4;
+  color: #8d623d;
+  padding: 12px 18px;
+  font-size: 0.78rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
