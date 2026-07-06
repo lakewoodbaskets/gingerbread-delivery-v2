@@ -751,8 +751,8 @@ function buildLabelPrintDocument(orders) {
     '.label-kicker, .label-order-number, .label-customer, .label-address { display: block; color: #000000; letter-spacing: 0; }' +
     '.label-kicker { font-size: 0.1in; font-weight: 900; line-height: 1; }' +
     '.label-order-number { margin-top: 0.006in; overflow: hidden; font-size: 0.3in; font-weight: 900; line-height: 0.9; text-overflow: ellipsis; white-space: nowrap; }' +
-    '.label-customer { margin-top: 0.022in; overflow: hidden; font-size: 0.17in; font-weight: 850; line-height: 0.98; text-overflow: ellipsis; white-space: nowrap; }' +
-    '.label-address { display: -webkit-box; margin: 0.018in 0 0; overflow: hidden; font-size: 0.13in; font-weight: 750; line-height: 0.98; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }' +
+    '.label-customer { margin-top: 0.028in; overflow: hidden; font-size: 0.21in; font-weight: 850; line-height: 0.94; text-overflow: ellipsis; white-space: nowrap; }' +
+    '.label-address { margin: 0.025in 0 0; overflow: hidden; font-size: 0.21in; font-weight: 850; line-height: 0.94; text-overflow: ellipsis; white-space: nowrap; }' +
     '.zebra-label:last-child { page-break-after: auto; break-after: auto; }' +
     '@media print { .print-note { display: none; } html, body { width: 2.25in !important; margin: 0 !important; padding: 0 !important; } .zebra-label { box-sizing: border-box !important; width: 2.25in !important; height: 1.25in !important; margin: 0 !important; overflow: hidden !important; } }' +
     '</style>' +
