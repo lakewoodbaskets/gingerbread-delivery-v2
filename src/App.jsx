@@ -99,7 +99,6 @@ const initialDrivers = [
 const navItems = [
   { id: 'orders', label: 'All Orders', mobile: 'Orders' },
   { id: 'add', label: 'Add Order', mobile: 'Add' },
-  { id: 'upload', label: 'Upload Orders', mobile: 'Upload' },
   { id: 'quick', label: 'Quick Entry' },
   { id: 'dispatch', label: 'Dispatch' },
   { id: 'drivers', label: 'Drivers', mobile: 'Drivers' },
@@ -631,7 +630,6 @@ function App() {
           />
         )}
         {!isDriverSession && activeView === 'add' && <AddOrder drivers={safeDrivers} onAddOrder={handleAddOrder} nextOrderNumber={getNextOrderNumber(orders)} />}
-        {!isDriverSession && activeView === 'upload' && <UploadOrders onAddOrders={handleAddOrders} nextOrderNumber={getNextOrderNumber(orders)} />}
         {!isDriverSession && activeView === 'quick' && <QuickEntry orders={orders} onAddOrders={handleAddOrders} />}
         {!isDriverSession && activeView === 'dispatch' && <Dispatch orders={orders} drivers={safeDrivers} onDispatchOrders={handleDispatchOrders} />}
         {!isDriverSession && activeView === 'drivers' && (
@@ -1245,75 +1243,6 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
   )
 }
 
-function UploadOrders({ onAddOrders, nextOrderNumber }) {
-  const sampleCsv = 'order_no,customer_name,phone,address,driver,notes\nGBD-2001,Maya Chen,(312) 555-0188,1840 W Armitage Ave,Andre Lewis,Call on arrival'
-  const [csvText, setCsvText] = useState(sampleCsv)
-  const [previewOrders, setPreviewOrders] = useState([])
-  const [uploadMessage, setUploadMessage] = useState('')
-
-  function buildPreview(text) {
-    const result = parseOrdersCsv(text, nextOrderNumber)
-    setPreviewOrders(result.orders)
-    setUploadMessage(result.message)
-  }
-
-  function handleFileUpload(event) {
-    const file = event.target.files?.[0]
-    if (!file) return
-
-    const reader = new FileReader()
-    reader.onload = () => {
-      const text = String(reader.result || '')
-      setCsvText(text)
-      buildPreview(text)
-    }
-    reader.readAsText(file)
-    event.target.value = ''
-  }
-
-  async function handleAddPreviewedOrders() {
-    if (!previewOrders.length) {
-      setUploadMessage('Preview orders before adding them.')
-      return
-    }
-
-    await onAddOrders(previewOrders)
-    setPreviewOrders([])
-    setUploadMessage('')
-  }
-
-  return (
-    <section className="single-view">
-      <PageHeader eyebrow="Bulk import" title="Upload Orders" subtitle="Drop a CSV or paste rows for review" />
-      <div className="upload-layout">
-        <div className="drop-card">
-          <span>CSV</span>
-          <h2>Upload order file</h2>
-          <p>Expected columns: order_no, customer_name, phone, address, driver, notes.</p>
-          <label className="file-upload-control">
-            <input type="file" accept=".csv,text/csv" onChange={handleFileUpload} />
-            <span className="primary-action">Choose File</span>
-          </label>
-        </div>
-        <div className="paste-card">
-          <label>Paste CSV rows</label>
-          <textarea rows="8" value={csvText} onChange={(event) => setCsvText(event.target.value)} />
-          <button className="secondary-action" type="button" onClick={() => buildPreview(csvText)}>Preview Orders</button>
-        </div>
-      </div>
-      <div className="preview-panel">
-        <div className="section-heading"><h2>Preview</h2><span>{previewOrders.length} rows ready</span></div>
-        {uploadMessage && <p className="upload-message">{uploadMessage}</p>}
-        <div className="mini-card-grid">
-          {previewOrders.map((order) => <OrderCard key={order.id} order={order} onClick={() => {}} />)}
-        </div>
-        <button className="primary-action add-preview-action" type="button" onClick={handleAddPreviewedOrders}>Add Previewed Orders</button>
-      </div>
-    </section>
-  )
-}
-
-
 function createQuickEntryRows(count) {
   return Array.from({ length: count }, () => ({ orderNo: '', customer: '', phone: '', address: '', notes: '' }))
 }
@@ -1333,6 +1262,7 @@ function QuickEntry({ orders = [], onAddOrders }) {
   const requiredFields = ['orderNo', 'customer', 'phone', 'address']
   const [rows, setRows] = useState(() => createQuickEntryRows(20))
   const [summary, setSummary] = useState({ imported: 0, skipped: 0 })
+  const [fileMessage, setFileMessage] = useState('')
   const [saving, setSaving] = useState(false)
   const existingOrderNumbers = useMemo(() => new Set((Array.isArray(orders) ? orders : []).map((order) => String(order?.id || '').trim().toLowerCase()).filter(Boolean)), [orders])
   const duplicateOrderNumbers = useMemo(() => {
@@ -1402,6 +1332,26 @@ function QuickEntry({ orders = [], onAddOrders }) {
     })
   }
 
+  async function handleFileUpload(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    try {
+      setFileMessage('')
+      const importedRows = await readQuickEntryFile(file)
+      const visibleRows = importedRows.length ? importedRows : []
+      const emptyRowsNeeded = Math.max(20 - visibleRows.length, 10)
+      setRows([...visibleRows, ...createQuickEntryRows(emptyRowsNeeded)])
+      setSummary({ imported: 0, skipped: 0 })
+      setFileMessage(visibleRows.length ? visibleRows.length + ' rows loaded for review.' : 'No rows found in that file.')
+    } catch (error) {
+      console.error(error)
+      setFileMessage(error?.message || 'Could not import that file.')
+    }
+  }
+
+
   function getCellClass(row, field) {
     const orderNo = String(row.orderNo || '').trim().toLowerCase()
     if (field === 'orderNo' && orderNo && duplicateOrderNumbers.has(orderNo)) return 'quick-cell duplicate'
@@ -1462,8 +1412,15 @@ function QuickEntry({ orders = [], onAddOrders }) {
           <div>
             <strong>Imported: {summary.imported} orders</strong>
             <span>Skipped: {summary.skipped} rows</span>
+            {fileMessage && <span>{fileMessage}</span>}
           </div>
-          <button className="primary-action" type="button" disabled={saving} onClick={handleSaveAll}>{saving ? 'Saving...' : 'Save All'}</button>
+          <div className="quick-entry-actions">
+            <label className="file-upload-control quick-upload-control">
+              <input type="file" accept=".csv,text/csv,.xlsx,.xls" onChange={handleFileUpload} />
+              <span className="secondary-action">Upload File</span>
+            </label>
+            <button className="primary-action" type="button" disabled={saving} onClick={handleSaveAll}>{saving ? 'Saving...' : 'Save All'}</button>
+          </div>
         </div>
         <div className="quick-grid-wrap">
           <div className="quick-grid" style={{ gridTemplateColumns: '104px 190px 150px minmax(260px, 1fr) minmax(220px, 0.8fr)' }}>
@@ -1488,6 +1445,69 @@ function QuickEntry({ orders = [], onAddOrders }) {
   )
 }
 
+
+
+async function readQuickEntryFile(file) {
+  const fileName = String(file?.name || '').toLowerCase()
+
+  if (fileName.endsWith('.csv') || file.type === 'text/csv') {
+    const text = await file.text()
+    return quickRowsFromTable(parseCsvRows(text))
+  }
+
+  if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+    const xlsxUrl = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm'
+    const XLSX = await import(/* @vite-ignore */ xlsxUrl)
+    const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+    const firstSheetName = workbook.SheetNames[0]
+    if (!firstSheetName) return []
+    const sheetRows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheetName], { header: 1, defval: '' })
+    return quickRowsFromTable(sheetRows)
+  }
+
+  throw new Error('Upload a CSV or Excel file.')
+}
+
+function quickRowsFromTable(tableRows) {
+  const cleanRows = (Array.isArray(tableRows) ? tableRows : [])
+    .map((row) => Array.isArray(row) ? row.map((cell) => String(cell || '').trim()) : [])
+    .filter((row) => row.some(Boolean))
+
+  if (!cleanRows.length) return []
+
+  const headers = cleanRows[0].map(normalizeHeader)
+  const headerMap = getQuickEntryHeaderMap(headers)
+  const hasHeaderRow = Object.values(headerMap).filter((index) => index >= 0).length >= 2
+  const dataRows = hasHeaderRow ? cleanRows.slice(1) : cleanRows
+
+  return dataRows
+    .map((row) => ({
+      orderNo: hasHeaderRow ? cellValue(row, headerMap.orderNo) : cellValue(row, 0),
+      customer: hasHeaderRow ? cellValue(row, headerMap.customer) : cellValue(row, 1),
+      phone: hasHeaderRow ? cellValue(row, headerMap.phone) : cellValue(row, 2),
+      address: hasHeaderRow ? cellValue(row, headerMap.address) : cellValue(row, 3),
+      notes: hasHeaderRow ? cellValue(row, headerMap.notes) : cellValue(row, 4),
+    }))
+    .filter((row) => !isQuickRowEmpty(row))
+}
+
+function getQuickEntryHeaderMap(headers) {
+  return {
+    orderNo: findHeaderIndex(headers, ['order #', 'order#', 'order_no', 'order no', 'order number', 'order']),
+    customer: findHeaderIndex(headers, ['customer name', 'customer_name', 'customer', 'name']),
+    phone: findHeaderIndex(headers, ['phone', 'phone number', 'customer phone']),
+    address: findHeaderIndex(headers, ['address', 'delivery address', 'customer address']),
+    notes: findHeaderIndex(headers, ['notes', 'note', 'delivery notes', 'instructions']),
+  }
+}
+
+function findHeaderIndex(headers, names) {
+  return headers.findIndex((header) => names.includes(header))
+}
+
+function normalizeHeader(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ')
+}
 
 function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
   const newOrders = (Array.isArray(orders) ? orders : []).filter((order) => order.status === 'New')

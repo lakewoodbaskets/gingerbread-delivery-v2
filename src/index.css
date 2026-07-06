@@ -1406,3 +1406,16 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 }
+
+.quick-entry-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quick-upload-control .secondary-action {
+  display: grid;
+  min-height: 42px;
+  place-items: center;
+  padding: 0 16px;
+}
