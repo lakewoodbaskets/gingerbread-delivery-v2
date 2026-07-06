@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from './supabaseClient'
+import { sendDeliveredSMS } from './smsService'
 
 const initialOrders = [
   {
@@ -383,6 +384,15 @@ function App() {
       const savedOrder = mapDeliveryFromRow(data)
       setOrders((currentOrders) => currentOrders.map((order) => order.dbId === savedOrder.dbId || order.id === selectedOrder.id ? savedOrder : order))
       setSelectedOrder(savedOrder)
+      if (selectedOrder.status !== 'Delivered' && savedOrder.status === 'Delivered') {
+        await sendDeliveredSMS({
+          customer_name: savedOrder.customer,
+          phone: savedOrder.phone,
+          order_no: savedOrder.id,
+          driver: getDriverName(savedOrder.driver),
+          delivered_time: savedOrder.completedAt || new Date().toISOString(),
+        })
+      }
     } catch (error) {
       logSupabaseError('Failed to update order', error)
       throw error
