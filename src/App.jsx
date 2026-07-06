@@ -332,8 +332,24 @@ function App() {
     printWindow.document.write(buildLabelPrintDocument(printableOrders))
     printWindow.document.close()
     printWindow.focus()
+
+    let printStarted = false
+    const closePrintWindow = () => {
+      printWindow.setTimeout(() => {
+        if (!printWindow.closed) printWindow.close()
+      }, 250)
+    }
+
+    printWindow.onafterprint = closePrintWindow
+    printWindow.addEventListener('afterprint', closePrintWindow)
+    printWindow.addEventListener('focus', () => {
+      if (printStarted) closePrintWindow()
+    })
+
     printWindow.setTimeout(() => {
+      printStarted = true
       printWindow.print()
+      closePrintWindow()
     }, 150)
   }
 
@@ -747,12 +763,12 @@ function buildLabelPrintDocument(orders) {
     'html, body { width: 2.25in; min-width: 0; margin: 0; padding: 0; overflow: visible; background: #ffffff; }' +
     'body { color: #000000; font-family: Arial, Helvetica, sans-serif; }' +
     '.print-note { box-sizing: border-box; width: 2.25in; margin: 0 0 0.12in; padding: 0.06in; color: #000000; font-size: 10px; line-height: 1.25; }' +
-    '.zebra-label { display: block; box-sizing: border-box; width: 2.25in; height: 1.25in; margin: 0; overflow: hidden; page-break-after: always; break-after: page; page-break-inside: avoid; break-inside: avoid; padding: 0.08in 0.08in 0.05in; background: #ffffff; color: #000000; }' +
+    '.zebra-label { display: block; box-sizing: border-box; width: 2.25in; height: 1.25in; margin: 0; overflow: hidden; page-break-after: always; break-after: page; page-break-inside: avoid; break-inside: avoid; padding: 0.075in 0.08in 0.045in; background: #ffffff; color: #000000; }' +
     '.label-kicker, .label-order-number, .label-customer, .label-address { display: block; color: #000000; letter-spacing: 0; }' +
     '.label-kicker { font-size: 0.1in; font-weight: 900; line-height: 1; }' +
     '.label-order-number { margin-top: 0.006in; overflow: hidden; font-size: 0.3in; font-weight: 900; line-height: 0.9; text-overflow: ellipsis; white-space: nowrap; }' +
-    '.label-customer { margin-top: 0.028in; overflow: hidden; font-size: 0.21in; font-weight: 850; line-height: 0.94; text-overflow: ellipsis; white-space: nowrap; }' +
-    '.label-address { margin: 0.025in 0 0; overflow: hidden; font-size: 0.21in; font-weight: 850; line-height: 0.94; text-overflow: ellipsis; white-space: nowrap; }' +
+    '.label-customer { margin-top: 0.024in; overflow: hidden; font-size: 0.2in; font-weight: 850; line-height: 0.92; text-overflow: ellipsis; white-space: nowrap; }' +
+    '.label-address { margin: 0.018in 0 0; overflow: visible; font-size: 0.158in; font-weight: 850; line-height: 0.94; white-space: normal; overflow-wrap: break-word; word-break: normal; }' +
     '.zebra-label:last-child { page-break-after: auto; break-after: auto; }' +
     '@media print { .print-note { display: none; } html, body { width: 2.25in !important; margin: 0 !important; padding: 0 !important; } .zebra-label { box-sizing: border-box !important; width: 2.25in !important; height: 1.25in !important; margin: 0 !important; overflow: hidden !important; } }' +
     '</style>' +
