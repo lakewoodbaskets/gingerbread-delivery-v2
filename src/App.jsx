@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from './supabaseClient'
 
 const initialOrders = [
@@ -777,6 +777,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
   const [saveMessage, setSaveMessage] = useState('')
   const [validationMessage, setValidationMessage] = useState('')
   const [isUploadingProof, setIsUploadingProof] = useState(false)
+  const [isUploadingSignature, setIsUploadingSignature] = useState(false)
   const isDriverMode = mode === 'driver'
   const canDriverEdit = !isDriverMode || order?.status === 'Out for Delivery'
   const driverStatusOptions = ['Out for Delivery', 'Delivered', 'Failed']
@@ -869,6 +870,41 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
     }
   }
 
+
+  async function handleSignatureCapture(dataUrl) {
+    if (!supabase) {
+      setValidationMessage('Supabase is not configured for signature upload.')
+      return
+    }
+
+    setValidationMessage('')
+    setSaveMessage('')
+    setIsUploadingSignature(true)
+
+    try {
+      const response = await fetch(dataUrl)
+      const blob = await response.blob()
+      const safeOrderNumber = String(draft.id || order?.id || 'delivery').replace(/[^a-zA-Z0-9-_]/g, '-')
+      const filePath = safeOrderNumber + '/signature-' + Date.now() + '.png'
+      const { error: uploadError } = await supabase.storage
+        .from('delivery-proofs')
+        .upload(filePath, blob, { contentType: 'image/png', upsert: true })
+
+      if (uploadError) throw uploadError
+
+      const { data } = supabase.storage
+        .from('delivery-proofs')
+        .getPublicUrl(filePath)
+
+      updateDraft('signature', data.publicUrl)
+    } catch (error) {
+      logSupabaseError('Failed to upload signature', error)
+      setValidationMessage(error?.message || 'Failed to upload signature.')
+    } finally {
+      setIsUploadingSignature(false)
+    }
+  }
+
   function handleOpenMaps() {
     const mapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(draft.address)
     window.open(mapsUrl, '_blank', 'noopener,noreferrer')
@@ -904,13 +940,13 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
             </div>
           )}
           {showProofFields && (
-            <div className="signature-field">
-              <span>Signature Pad</span>
-              <button disabled={isDriverMode && !canDriverEdit} className="signature-pad" type="button" onClick={() => updateDraft('signature', 'Receiver signature captured')}>
-                <strong>{draft.signature || 'Receiver signature'}</strong>
-                <small>{draft.signature ? 'Signature captured' : 'Tap to capture signature'}</small>
-              </button>
-            </div>
+            <SignaturePad
+              disabled={isDriverMode && !canDriverEdit}
+              isUploading={isUploadingSignature}
+              signatureUrl={draft.signature}
+              onCapture={handleSignatureCapture}
+              onClear={() => updateDraft('signature', '')}
+            />
           )}
           {showFailureReason && <label>Failure Reason<textarea disabled={isDriverMode && !canDriverEdit} required value={draft.failureReason} onChange={(event) => updateDraft('failureReason', event.target.value)} rows="3" /></label>}
         </div>
@@ -925,6 +961,99 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
         </div>
       </form>
     </aside>
+  )
+}
+
+function SignaturePad({ disabled, isUploading, signatureUrl, onCapture, onClear }) {
+  const canvasRef = useRef(null)
+  const [isDrawing, setIsDrawing] = useState(false)
+  const [hasInk, setHasInk] = useState(false)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const rect = canvas.getBoundingClientRect()
+    const scale = window.devicePixelRatio || 1
+    canvas.width = Math.max(1, Math.floor(rect.width * scale))
+    canvas.height = Math.max(1, Math.floor(rect.height * scale))
+    const context = canvas.getContext('2d')
+    context.scale(scale, scale)
+    context.lineCap = 'round'
+    context.lineJoin = 'round'
+    context.lineWidth = 2.4
+    context.strokeStyle = '#1f1712'
+    context.fillStyle = '#fffdf9'
+    context.fillRect(0, 0, rect.width, rect.height)
+  }, [signatureUrl])
+
+  function getPoint(event) {
+    const canvas = canvasRef.current
+    const rect = canvas.getBoundingClientRect()
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    }
+  }
+
+  function startDrawing(event) {
+    if (disabled) return
+    event.preventDefault()
+    const canvas = canvasRef.current
+    const context = canvas.getContext('2d')
+    const point = getPoint(event)
+    context.beginPath()
+    context.moveTo(point.x, point.y)
+    setIsDrawing(true)
+    setHasInk(true)
+  }
+
+  function draw(event) {
+    if (!isDrawing || disabled) return
+    event.preventDefault()
+    const canvas = canvasRef.current
+    const context = canvas.getContext('2d')
+    const point = getPoint(event)
+    context.lineTo(point.x, point.y)
+    context.stroke()
+  }
+
+  function stopDrawing() {
+    setIsDrawing(false)
+  }
+
+  function clearSignature() {
+    const canvas = canvasRef.current
+    const context = canvas.getContext('2d')
+    const rect = canvas.getBoundingClientRect()
+    context.fillStyle = '#fffdf9'
+    context.fillRect(0, 0, rect.width, rect.height)
+    setHasInk(false)
+    onClear()
+  }
+
+  function saveSignature() {
+    if (!hasInk || disabled) return
+    onCapture(canvasRef.current.toDataURL('image/png'))
+  }
+
+  return (
+    <div className="signature-field">
+      <span>Signature Pad</span>
+      {signatureUrl && <img className="signature-preview" src={signatureUrl} alt="Saved signature" />}
+      <canvas
+        ref={canvasRef}
+        className="signature-canvas"
+        onPointerDown={startDrawing}
+        onPointerMove={draw}
+        onPointerUp={stopDrawing}
+        onPointerLeave={stopDrawing}
+      />
+      <div className="signature-actions">
+        <button className="secondary-action" disabled={disabled || isUploading} type="button" onClick={clearSignature}>Clear Signature</button>
+        <button className="secondary-action" disabled={disabled || isUploading || !hasInk} type="button" onClick={saveSignature}>{isUploading ? 'Uploading...' : 'Save Signature'}</button>
+      </div>
+    </div>
   )
 }
 
