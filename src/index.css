@@ -1402,7 +1402,7 @@ textarea:focus {
   inset: 0;
   z-index: 120;
   overflow: auto;
-  background: #f7f4ef;
+  background: #f4f2ef;
   padding: 24px;
 }
 
@@ -1410,76 +1410,86 @@ textarea:focus {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  max-width: 720px;
+  width: 2.25in;
   margin: 0 auto 14px;
 }
 
-.delivery-slip {
-  width: min(100%, 720px);
-  margin: 0 auto 18px;
-  border: 1px solid #d9d0c7;
-  border-radius: 4px;
-  background: #ffffff;
-  color: #1f1712;
-  padding: 28px 32px;
+.delivery-slip.zebra-label {
+  display: grid;
+  align-content: start;
+  width: 2.25in;
+  height: 1.25in;
+  margin: 0 auto 14px;
+  overflow: hidden;
   page-break-after: always;
   break-after: page;
   page-break-inside: avoid;
   break-inside: avoid;
+  border: 1px solid #d6d2cc;
+  background: #ffffff;
+  color: #000000;
+  padding: 0.08in 0.1in;
+  font-family: Arial, Helvetica, sans-serif;
 }
 
-.delivery-slip h1 {
-  margin: 0 0 18px;
-  border-bottom: 1px solid #d9d0c7;
-  padding-bottom: 12px;
-  color: #1f1712;
-  font-size: 1.7rem;
-  font-weight: 950;
+.label-kicker,
+.label-order-number,
+.label-customer,
+.label-address {
+  display: block;
+  color: #000000;
   letter-spacing: 0;
 }
 
-.slip-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: 28px;
-  row-gap: 14px;
-}
-
-.slip-field {
-  display: grid;
-  gap: 4px;
-  border-bottom: 1px solid #ece7df;
-  padding-bottom: 10px;
-}
-
-.slip-field.wide {
-  grid-column: 1 / -1;
-}
-
-.slip-field span {
-  color: #786d63;
-  font-size: 0.78rem;
+.label-kicker {
+  font-size: 0.12in;
   font-weight: 900;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  line-height: 1;
 }
 
-.slip-field strong {
-  color: #1f1712;
-  font-size: 1.18rem;
+.label-order-number {
+  margin-top: 0.01in;
+  font-size: 0.3in;
+  font-weight: 900;
+  line-height: 0.95;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.label-customer {
+  margin-top: 0.04in;
+  font-size: 0.16in;
   font-weight: 800;
-  line-height: 1.28;
-  overflow-wrap: anywhere;
+  line-height: 1.05;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.label-address {
+  display: -webkit-box;
+  margin: 0.03in 0 0;
+  overflow: hidden;
+  color: #000000;
+  font-size: 0.125in;
+  font-weight: 700;
+  line-height: 1.08;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 @media print {
   @page {
-    size: auto;
-    margin: 0.45in;
+    size: 2.25in 1.25in;
+    margin: 0;
   }
 
   html,
   body {
+    width: 2.25in;
+    min-width: 0;
+    margin: 0;
     background: #ffffff;
   }
 
@@ -1494,6 +1504,7 @@ textarea:focus {
 
   .app-frame {
     display: block;
+    width: 2.25in;
     min-height: 0;
     background: #ffffff;
   }
@@ -1502,44 +1513,21 @@ textarea:focus {
     position: static;
     inset: auto;
     overflow: visible;
+    width: 2.25in;
+    margin: 0;
     background: #ffffff;
     padding: 0;
   }
 
-  .delivery-slip {
-    width: 100%;
-    max-width: 7.2in;
-    min-height: auto;
-    margin: 0 auto;
-    border: 1px solid #cfc7bf;
-    border-radius: 0;
-    box-shadow: none;
-    padding: 0.25in 0.3in;
+  .delivery-slip.zebra-label {
+    width: 2.25in;
+    height: 1.25in;
+    margin: 0;
+    border: 0;
+    padding: 0.08in 0.1in;
   }
 
-  .delivery-slip h1 {
-    font-size: 20pt;
-    margin-bottom: 14pt;
-    padding-bottom: 8pt;
-  }
-
-  .slip-grid {
-    gap: 10pt 20pt;
-  }
-
-  .slip-field {
-    padding-bottom: 7pt;
-  }
-
-  .slip-field span {
-    font-size: 8.5pt;
-  }
-
-  .slip-field strong {
-    font-size: 13.5pt;
-  }
-
-  .delivery-slip:last-child {
+  .delivery-slip.zebra-label:last-child {
     page-break-after: auto;
     break-after: auto;
   }

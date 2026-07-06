@@ -700,37 +700,15 @@ function PrintSlips({ orders = [], onClose }) {
         <button className="primary-action" type="button" onClick={() => window.print()}>Print</button>
       </div>
       {printableOrders.map((order) => (
-        <section className="delivery-slip" key={order.dbId || order.id}>
-          <h1>Gingerbread Delivery</h1>
-          <div className="slip-grid">
-            <SlipField label="Order #" value={order.id} />
-            <SlipField label="Customer Name" value={order.customer} />
-            <SlipField label="Phone" value={order.phone} />
-            <SlipField label="Address" value={order.address} wide />
-            <SlipField label="Driver" value={getDriverName(order.driver) || 'Unassigned'} />
-            <SlipField label="Date" value={formatSlipDate(order)} />
-            <SlipField label="Notes" value={order.notes || 'None'} wide />
-          </div>
+        <section className="delivery-slip zebra-label" key={order.dbId || order.id}>
+          <span className="label-kicker">ORDER #</span>
+          <strong className="label-order-number">{order.id}</strong>
+          <span className="label-customer">{order.customer}</span>
+          <p className="label-address">{order.address}</p>
         </section>
       ))}
     </div>
   )
-}
-
-function SlipField({ label, value, wide = false }) {
-  return (
-    <div className={wide ? 'slip-field wide' : 'slip-field'}>
-      <span>{label}</span>
-      <strong>{value || ''}</strong>
-    </div>
-  )
-}
-
-function formatSlipDate(order) {
-  const rawDate = order?.deliveryDate || order?.delivery_date || new Date().toISOString()
-  const date = new Date(rawDate)
-  if (Number.isNaN(date.getTime())) return rawDate
-  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
 }
 
 function LoginScreen({ drivers, officePin, companyName, onLogin }) {
