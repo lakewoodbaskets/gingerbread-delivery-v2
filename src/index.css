@@ -1407,16 +1407,29 @@ textarea:focus {
 }
 
 .print-controls {
-  display: flex;
-  justify-content: flex-end;
+  display: grid;
   gap: 10px;
-  width: 2.25in;
+  width: min(100%, 3.4in);
   margin: 0 auto 14px;
 }
 
+.print-controls p {
+  margin: 0;
+  color: #5f574f;
+  font-size: 0.84rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.print-controls div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .delivery-slip.zebra-label {
-  display: grid;
-  align-content: start;
+  display: block;
+  box-sizing: border-box;
   width: 2.25in;
   height: 1.25in;
   margin: 0 auto 14px;
@@ -1428,7 +1441,7 @@ textarea:focus {
   border: 1px solid #d6d2cc;
   background: #ffffff;
   color: #000000;
-  padding: 0.08in 0.1in;
+  padding: 0.055in 0.075in;
   font-family: Arial, Helvetica, sans-serif;
 }
 
@@ -1442,39 +1455,39 @@ textarea:focus {
 }
 
 .label-kicker {
-  font-size: 0.12in;
+  font-size: 0.095in;
   font-weight: 900;
   line-height: 1;
 }
 
 .label-order-number {
-  margin-top: 0.01in;
-  font-size: 0.3in;
+  margin-top: 0.005in;
+  overflow: hidden;
+  font-size: 0.255in;
   font-weight: 900;
   line-height: 0.95;
-  white-space: nowrap;
-  overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .label-customer {
-  margin-top: 0.04in;
-  font-size: 0.16in;
+  margin-top: 0.025in;
+  overflow: hidden;
+  font-size: 0.13in;
   font-weight: 800;
   line-height: 1.05;
-  white-space: nowrap;
-  overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .label-address {
   display: -webkit-box;
-  margin: 0.03in 0 0;
+  margin: 0.02in 0 0;
   overflow: hidden;
   color: #000000;
-  font-size: 0.125in;
+  font-size: 0.102in;
   font-weight: 700;
-  line-height: 1.08;
+  line-height: 1.05;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -1485,46 +1498,62 @@ textarea:focus {
     margin: 0;
   }
 
-  html,
-  body {
-    width: 2.25in;
-    min-width: 0;
-    margin: 0;
-    background: #ffffff;
+  * {
+    visibility: hidden !important;
   }
 
-  .sidebar,
-  .main-shell,
-  .drawer-layer,
-  .mobile-nav,
-  .toast-message,
+  html,
+  body,
+  #root {
+    width: 2.25in !important;
+    height: 1.25in !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+
+  .print-view,
+  .print-view * {
+    visibility: visible !important;
+  }
+
   .print-controls {
     display: none !important;
   }
 
   .app-frame {
-    display: block;
-    width: 2.25in;
-    min-height: 0;
-    background: #ffffff;
+    display: block !important;
+    width: 2.25in !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
   }
 
   .print-view {
-    position: static;
-    inset: auto;
-    overflow: visible;
-    width: 2.25in;
-    margin: 0;
-    background: #ffffff;
-    padding: 0;
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 2.25in !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
   }
 
   .delivery-slip.zebra-label {
-    width: 2.25in;
-    height: 1.25in;
-    margin: 0;
-    border: 0;
-    padding: 0.08in 0.1in;
+    box-sizing: border-box !important;
+    width: 2.25in !important;
+    height: 1.25in !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+    border: 0 !important;
+    padding: 0.055in 0.075in !important;
+    page-break-after: always;
+    break-after: page;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
 
   .delivery-slip.zebra-label:last-child {

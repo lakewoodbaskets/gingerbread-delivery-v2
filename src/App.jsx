@@ -696,8 +696,11 @@ function PrintSlips({ orders = [], onClose }) {
   return (
     <div className="print-view">
       <div className="print-controls">
-        <button className="secondary-action" type="button" onClick={onClose}>Close</button>
-        <button className="primary-action" type="button" onClick={() => window.print()}>Print</button>
+        <p>For Zebra labels, turn off browser print "Headers and footers".</p>
+        <div>
+          <button className="secondary-action" type="button" onClick={onClose}>Close</button>
+          <button className="primary-action" type="button" onClick={() => window.print()}>Print</button>
+        </div>
       </div>
       {printableOrders.map((order) => (
         <section className="delivery-slip zebra-label" key={order.dbId || order.id}>
