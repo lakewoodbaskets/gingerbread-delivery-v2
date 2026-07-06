@@ -389,9 +389,12 @@ function App() {
 
       if (error) throw error
       const savedOrder = mapDeliveryFromRow(data)
-      setOrders((currentOrders) => currentOrders.map((order) => order.dbId === savedOrder.dbId || order.id === selectedOrder.id ? savedOrder : order))
+      const becameDelivered = selectedOrder.status !== 'Delivered' && savedOrder.status === 'Delivered'
+      const driverCompletedDelivery = isDriverSession && becameDelivered
+
       setSelectedOrder(savedOrder)
-      if (selectedOrder.status !== 'Delivered' && savedOrder.status === 'Delivered') {
+
+      if (becameDelivered) {
         await sendDeliveredSMS({
           customer_name: savedOrder.customer,
           phone: savedOrder.phone,
@@ -400,7 +403,25 @@ function App() {
           delivered_time: savedOrder.completedAt || new Date().toISOString(),
         })
       }
+
+      if (driverCompletedDelivery) {
+        showToast('✅ Delivery Completed')
+        window.setTimeout(async () => {
+          setSelectedOrder(null)
+          try {
+            const refreshedDeliveries = await loadDeliveries()
+            setOrders(refreshedDeliveries)
+          } catch (refreshError) {
+            logSupabaseError('Failed to refresh deliveries after completion', refreshError)
+            setOrders((currentOrders) => currentOrders.map((order) => order.dbId === savedOrder.dbId || order.id === selectedOrder.id ? savedOrder : order))
+          }
+        }, 2000)
+        return { driverCompletedDelivery: true }
+      }
+
+      setOrders((currentOrders) => currentOrders.map((order) => order.dbId === savedOrder.dbId || order.id === selectedOrder.id ? savedOrder : order))
       showToast('Order saved')
+      return { driverCompletedDelivery: false }
     } catch (error) {
       logSupabaseError('Failed to update order', error)
       showToast('Save failed', 'error')
@@ -905,7 +926,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
     }
 
     try {
-      await onSave({
+      const saveResult = await onSave({
         ...draft,
         id: isDriverMode ? order.id : draft.id,
         customer: isDriverMode ? order.customer : draft.customer,
@@ -917,8 +938,8 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
         failureReason: showFailureReason ? draft.failureReason : '',
         proofPhoto: showProofFields ? draft.proofPhoto : '',
       })
-      setSaveMessage('Saved ✓')
-      window.setTimeout(onClose, 1000)
+      setSaveMessage(saveResult?.driverCompletedDelivery ? 'Delivery Completed' : 'Saved ✓')
+      window.setTimeout(onClose, saveResult?.driverCompletedDelivery ? 2000 : 1000)
     } catch (error) {
       setValidationMessage(error?.message || 'Failed to save changes.')
     }
