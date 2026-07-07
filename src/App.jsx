@@ -120,18 +120,56 @@ function getDriverName(driverValue) {
   return ''
 }
 
+const deliveryTimeZone = 'America/New_York'
+const localDateFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: deliveryTimeZone,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
+function padDatePart(value) {
+  return String(value).padStart(2, '0')
+}
+
+function formatDateParts(year, month, day) {
+  return year + '-' + padDatePart(month) + '-' + padDatePart(day)
+}
+
+function getLocalDateParts(date = new Date()) {
+  const parts = localDateFormatter.formatToParts(date)
+  return {
+    year: Number(parts.find((part) => part.type === 'year')?.value),
+    month: Number(parts.find((part) => part.type === 'month')?.value),
+    day: Number(parts.find((part) => part.type === 'day')?.value),
+  }
+}
+
 function getTodayDate() {
-  return new Date().toISOString().slice(0, 10)
+  const { year, month, day } = getLocalDateParts()
+  return formatDateParts(year, month, day)
 }
 
 function getOffsetDate(days) {
-  const date = new Date()
-  date.setDate(date.getDate() + days)
-  return date.toISOString().slice(0, 10)
+  const { year, month, day } = getLocalDateParts()
+  const offsetDate = new Date(Date.UTC(year, month - 1, day + days))
+  return formatDateParts(offsetDate.getUTCFullYear(), offsetDate.getUTCMonth() + 1, offsetDate.getUTCDate())
+}
+
+function normalizeLocalDateString(value) {
+  if (!value) return ''
+  if (value instanceof Date) {
+    const { year, month, day } = getLocalDateParts(value)
+    return formatDateParts(year, month, day)
+  }
+
+  const match = String(value).trim().match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!match) return ''
+  return match[1] + '-' + match[2] + '-' + match[3]
 }
 
 function getDeliveryDate(order) {
-  return order?.deliveryDate || order?.delivery_date || getTodayDate()
+  return normalizeLocalDateString(order?.deliveryDate || order?.delivery_date) || getTodayDate()
 }
 
 function matchesDateFilter(order, filter) {
@@ -149,11 +187,15 @@ function getDateGroupKey(order) {
 }
 
 function getDateGroupLabel(dateValue) {
-  if (dateValue === getTodayDate()) return 'TODAY'
-  if (dateValue === getOffsetDate(1)) return 'TOMORROW'
-  const date = new Date(dateValue + 'T00:00:00')
-  if (Number.isNaN(date.getTime())) return dateValue || 'UNSCHEDULED'
-  return date.toLocaleDateString(undefined, { weekday: 'long' }).toUpperCase()
+  const normalizedDate = normalizeLocalDateString(dateValue)
+  if (normalizedDate === getTodayDate()) return 'TODAY'
+  if (normalizedDate === getOffsetDate(1)) return 'TOMORROW'
+
+  const match = normalizedDate.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match) return dateValue || 'UNSCHEDULED'
+
+  const weekdayDate = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12))
+  return new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' }).format(weekdayDate).toUpperCase()
 }
 
 function getCompletedAt(order) {
@@ -179,7 +221,7 @@ function mapDeliveryFromRow(row = {}) {
     phone: row.phone || '',
     address: row.address || '',
     driver: getDriverName(row.driver),
-    deliveryDate: row.delivery_date || '',
+    deliveryDate: normalizeLocalDateString(row.delivery_date) || '',
     status: row.status || 'New',
     notes: row.notes || '',
     receiver: row.receiver_name || '',
@@ -1371,7 +1413,7 @@ function QuickEntry({ orders = [], onAddOrders }) {
 
       ordersToImport.push({
         id: orderNo,
-        deliveryDate: String(row.deliveryDate || '').trim() || getTodayDate(),
+        deliveryDate: normalizeLocalDateString(row.deliveryDate) || getTodayDate(),
         customer: String(row.customer || '').trim(),
         phone: String(row.phone || '').trim(),
         address: String(row.address || '').trim(),
@@ -1776,7 +1818,7 @@ function parseOrdersCsv(csvText, fallbackOrderNumber) {
     const orderNumber = cellValue(row, headerIndex.order_no) || 'GBD-' + String(fallbackBase + index)
     return {
       id: orderNumber,
-      deliveryDate: cellValue(row, headerIndex.delivery_date) || getTodayDate(),
+      deliveryDate: normalizeLocalDateString(cellValue(row, headerIndex.delivery_date)) || getTodayDate(),
       customer: cellValue(row, headerIndex.customer_name),
       phone: cellValue(row, headerIndex.phone),
       address: cellValue(row, headerIndex.address),
