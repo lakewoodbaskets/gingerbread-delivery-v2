@@ -918,20 +918,59 @@ function Sidebar({ activeView, setActiveView, onLogout }) {
 }
 
 function MobileNav({ activeView, setActiveView }) {
+  const [moreOpen, setMoreOpen] = useState(false)
+  const primaryItems = navItems.filter((item) => item.mobile)
+  const extraItems = navItems.filter((item) => !item.mobile)
+  const isMoreActive = extraItems.some((item) => item.id === activeView)
+
+  function chooseView(viewId) {
+    setActiveView(viewId)
+    setMoreOpen(false)
+  }
+
   return (
-    <nav className="mobile-nav" aria-label="Mobile navigation">
-      {navItems.filter((item) => item.mobile).map((item) => (
-        <button
-          key={item.id}
-          className={activeView === item.id ? 'mobile-link active' : 'mobile-link'}
-          onClick={() => setActiveView(item.id)}
-          type="button"
-        >
-          <span />
-          {item.mobile}
-        </button>
-      ))}
-    </nav>
+    <>
+      {moreOpen && <button className="mobile-more-scrim" type="button" aria-label="Close mobile menu" onClick={() => setMoreOpen(false)} />}
+      <nav className="mobile-nav" aria-label="Mobile navigation">
+        {primaryItems.map((item) => (
+          <button
+            key={item.id}
+            className={activeView === item.id ? 'mobile-link active' : 'mobile-link'}
+            onClick={() => chooseView(item.id)}
+            type="button"
+          >
+            <span />
+            {item.mobile}
+          </button>
+        ))}
+        <div className="mobile-more-wrap">
+          {moreOpen && (
+            <div className="mobile-more-menu">
+              {extraItems.map((item) => (
+                <button
+                  key={item.id}
+                  className={activeView === item.id ? 'mobile-more-item active' : 'mobile-more-item'}
+                  onClick={() => chooseView(item.id)}
+                  type="button"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            className={isMoreActive || moreOpen ? 'mobile-link active' : 'mobile-link'}
+            onClick={() => setMoreOpen((open) => !open)}
+            type="button"
+            aria-expanded={moreOpen}
+            aria-haspopup="menu"
+          >
+            <span />
+            More
+          </button>
+        </div>
+      </nav>
+    </>
   )
 }
 
