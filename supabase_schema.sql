@@ -78,3 +78,14 @@ begin
     using (bucket_id = 'delivery-proofs');
   end if;
 end $$;
+
+
+-- Add order priority for deliveries.
+alter table public.deliveries
+add column if not exists priority text not null default 'Normal';
+
+alter table public.deliveries
+drop constraint if exists deliveries_priority_check;
+
+alter table public.deliveries
+add constraint deliveries_priority_check check (priority in ('Normal', 'Priority'));

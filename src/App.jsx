@@ -98,6 +98,7 @@ const statusOptions = ['All', 'New', 'Out for Delivery', 'Delivered', 'Failed']
 const editableStatusOptions = statusOptions.filter((option) => option !== 'All')
 const sortOptions = ['Newest First', 'Oldest First', 'Customer A-Z', 'Customer Z-A']
 const dateFilterOptions = ['Today', 'Tomorrow', 'Future', 'All']
+const priorityOptions = ['Normal', 'Priority']
 
 const defaultSettings = {
   companyName: 'Gingerbread Delivery',
@@ -118,6 +119,15 @@ function getDriverName(driverValue) {
   if (typeof driverValue === 'string') return driverValue
   if (driverValue && typeof driverValue === 'object') return driverValue?.name || driverValue?.driver_name || ''
   return ''
+}
+
+function getOrderPriority(order = {}) {
+  return order?.priority === 'Priority' ? 'Priority' : 'Normal'
+}
+
+function comparePriority(a, b) {
+  if (getOrderPriority(a) === getOrderPriority(b)) return 0
+  return getOrderPriority(a) === 'Priority' ? -1 : 1
 }
 
 const deliveryTimeZone = 'America/New_York'
@@ -222,6 +232,7 @@ function mapDeliveryFromRow(row = {}) {
     address: row.address || '',
     driver: getDriverName(row.driver),
     deliveryDate: normalizeLocalDateString(row.delivery_date) || '',
+    priority: row.priority === 'Priority' ? 'Priority' : 'Normal',
     status: row.status || 'New',
     notes: row.notes || '',
     receiver: row.receiver_name || '',
@@ -240,6 +251,7 @@ function mapDeliveryToRow(order = {}) {
     phone: order.phone || '',
     address: order.address || '',
     driver: getDriverName(order.driver),
+    priority: getOrderPriority(order),
     status: order.status || 'New',
     notes: order.notes || '',
     receiver_name: order.status === 'Delivered' ? order.receiver || '' : '',
@@ -632,9 +644,10 @@ function App() {
     })
   }
 
-  async function handleDispatchOrders(orderIds, driverName) {
+  async function handleDispatchOrders(orderIds, driverName, priority = '') {
     const selectedIds = Array.isArray(orderIds) ? orderIds.filter(Boolean) : []
     const assignedDriver = getDriverName(driverName).trim()
+    const dispatchPriority = priorityOptions.includes(priority) ? priority : ''
 
     if (!selectedIds.length || !assignedDriver) {
       showToast('Select orders and a driver', 'error')
@@ -650,7 +663,7 @@ function App() {
     try {
       if (!supabase) throw new Error('Missing Supabase environment variables')
       const savedOrders = await Promise.all(selectedOrders.map(async (order) => {
-        const nextOrder = { ...order, driver: assignedDriver, status: 'Out for Delivery' }
+        const nextOrder = { ...order, driver: assignedDriver, priority: dispatchPriority || getOrderPriority(order), status: 'Out for Delivery' }
         let query = supabase.from('deliveries').update(mapDeliveryToRow(nextOrder))
         query = order.dbId ? query.eq('id', order.dbId) : query.eq('order_no', order.id)
         const { data, error } = await query.select('*').single()
@@ -679,6 +692,8 @@ function App() {
         )
       })
       .sort((a, b) => {
+        const prioritySort = comparePriority(a, b)
+        if (prioritySort) return prioritySort
         if (sort === 'Customer A-Z') return a.customer.localeCompare(b.customer)
         if (sort === 'Customer Z-A') return b.customer.localeCompare(a.customer)
         if (sort === 'Oldest First') return getDeliveryDate(a).localeCompare(getDeliveryDate(b)) || a.id.localeCompare(b.id)
@@ -1065,18 +1080,24 @@ function OrderCard({ order, onClick, drivers = [], canQuickDispatch = false, onD
   const tone = statusClass[order.status]
   const availableDrivers = Array.isArray(drivers) ? drivers.filter((driver) => (driver?.status || 'Active') === 'Active') : []
   const [dispatchDriver, setDispatchDriver] = useState(getDriverName(availableDrivers[0]))
+  const [dispatchPriority, setDispatchPriority] = useState(getOrderPriority(order))
 
   function handleQuickDispatch(event) {
     event.stopPropagation()
-    onDispatchOrders?.([order.dbId || order.id], dispatchDriver)
+    onDispatchOrders?.([order.dbId || order.id], dispatchDriver, dispatchPriority)
   }
 
+  const isPriority = getOrderPriority(order) === 'Priority'
+
   return (
-    <article className="order-card">
+    <article className={isPriority ? 'order-card priority-order-card' : 'order-card'}>
       <button className="order-card-open" onClick={onClick} type="button">
         <div className="order-card-top">
           <span>{order.id}</span>
-          <span className={'status-pill ' + tone}>{order.status}</span>
+          <span className="card-badges">
+            {isPriority && <span className="priority-badge">PRIORITY</span>}
+            <span className={'status-pill ' + tone}>{order.status}</span>
+          </span>
         </div>
         <h2>{order.customer}</h2>
         <div className="order-meta">
@@ -1093,6 +1114,9 @@ function OrderCard({ order, onClick, drivers = [], canQuickDispatch = false, onD
           <select value={dispatchDriver} onChange={(event) => setDispatchDriver(event.target.value)} onClick={(event) => event.stopPropagation()}>
             <option value="">Choose driver</option>
             {availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index} value={getDriverName(driver)}>{getDriverName(driver)}</option>)}
+          </select>
+          <select value={dispatchPriority} onChange={(event) => setDispatchPriority(event.target.value)} onClick={(event) => event.stopPropagation()}>
+            {priorityOptions.map((option) => <option key={option}>{option}</option>)}
           </select>
           <button className="secondary-action" type="button" disabled={!dispatchDriver} onClick={handleQuickDispatch}>Out for Delivery</button>
         </div>
@@ -1155,6 +1179,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
         address: isDriverMode ? order.address : draft.address,
         driver: isDriverMode ? order.driver : draft.driver,
         deliveryDate: isDriverMode ? order.deliveryDate : draft.deliveryDate || getTodayDate(),
+        priority: isDriverMode ? getOrderPriority(order) : getOrderPriority(draft),
         notes: isDriverMode ? order.notes : draft.notes,
         receiver: showReceiver ? draft.receiver : '',
         failureReason: showFailureReason ? draft.failureReason : '',
@@ -1229,6 +1254,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
           {!isDriverMode && <label>Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} /></label>}
           {!isDriverMode && <label>Driver<select value={getDriverName(draft.driver)} onChange={(event) => updateDraft('driver', event.target.value)}><option value="">Unassigned</option>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index}>{getDriverName(driver)}</option>)}</select></label>}
           {!isDriverMode && <label>Delivery Date<input type="date" value={draft.deliveryDate || getTodayDate()} onChange={(event) => updateDraft('deliveryDate', event.target.value)} /></label>}
+          {!isDriverMode && <label>Priority<select value={getOrderPriority(draft)} onChange={(event) => updateDraft('priority', event.target.value)}>{priorityOptions.map((option) => <option key={option}>{option}</option>)}</select></label>}
           <label>Status<select disabled={isDriverMode && !canDriverEdit} value={draft.status} onChange={(event) => updateDraft('status', event.target.value)}>{statusChoices.map((option) => <option key={option}>{option}</option>)}</select></label>
           {!isDriverMode && <label>Notes<textarea value={draft.notes} onChange={(event) => updateDraft('notes', event.target.value)} rows="4" /></label>}
           {showReceiver && <label>Receiver Name<input disabled={isDriverMode && !canDriverEdit} required value={draft.receiver} onChange={(event) => updateDraft('receiver', event.target.value)} /></label>}
@@ -1286,6 +1312,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
     address: '',
     driver: '',
     deliveryDate: getTodayDate(),
+    priority: 'Normal',
     status: 'New',
     notes: '',
     receiver: '',
@@ -1306,6 +1333,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
       ...draft,
       driver: getDriverName(draft.driver),
       deliveryDate: draft.deliveryDate || getTodayDate(),
+      priority: getOrderPriority(draft),
       status: 'New',
       receiver: showReceiver ? draft.receiver : '',
       failureReason: showFailureReason ? draft.failureReason : '',
@@ -1325,6 +1353,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
           <label className="wide">Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} placeholder="Street, city, state" /></label>
           <label>Driver<select value={getDriverName(draft.driver)} onChange={(event) => updateDraft('driver', event.target.value)}><option value="">Unassigned</option>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index}>{getDriverName(driver)}</option>)}</select></label>
           <label>Delivery Date<input type="date" value={draft.deliveryDate || getTodayDate()} onChange={(event) => updateDraft('deliveryDate', event.target.value)} /></label>
+          <label>Priority<select value={getOrderPriority(draft)} onChange={(event) => updateDraft('priority', event.target.value)}>{priorityOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
           <label className="wide">Notes<textarea value={draft.notes} onChange={(event) => updateDraft('notes', event.target.value)} placeholder="Delivery instructions" rows="4" /></label>
           {showReceiver && <label>Receiver Name<input value={draft.receiver} onChange={(event) => updateDraft('receiver', event.target.value)} placeholder="Receiver name" /></label>}
           {showFailureReason && <label className="wide">Failure Reason<textarea value={draft.failureReason} onChange={(event) => updateDraft('failureReason', event.target.value)} placeholder="Reason delivery failed" rows="3" /></label>}
@@ -1483,6 +1512,7 @@ function QuickEntry({ orders = [], onAddOrders }) {
         receiver: '',
         failureReason: '',
         proofPhoto: '',
+        priority: 'Normal',
       })
     })
 
@@ -1609,7 +1639,7 @@ function normalizeHeader(value) {
 function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
   const newOrders = (Array.isArray(orders) ? orders : [])
     .filter((order) => order.status === 'New')
-    .sort((a, b) => getDeliveryDate(a).localeCompare(getDeliveryDate(b)) || a.id.localeCompare(b.id))
+    .sort((a, b) => comparePriority(a, b) || getDeliveryDate(a).localeCompare(getDeliveryDate(b)) || a.id.localeCompare(b.id))
   const groupedOrders = newOrders.reduce((groups, order) => {
     const dateKey = getDateGroupKey(order)
     if (!groups[dateKey]) groups[dateKey] = []
@@ -1621,6 +1651,7 @@ function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
   const availableDrivers = (Array.isArray(drivers) ? drivers : []).filter((driver) => (driver?.status || 'Active') === 'Active')
   const [selectedIds, setSelectedIds] = useState([])
   const [selectedDriver, setSelectedDriver] = useState('')
+  const [selectedPriority, setSelectedPriority] = useState('Normal')
   const [collapsedDates, setCollapsedDates] = useState(() => new Set())
 
   function isDateCollapsed(dateKey) {
@@ -1661,7 +1692,7 @@ function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
   }
 
   async function handleSendOut() {
-    const dispatched = await onDispatchOrders(selectedIds, selectedDriver)
+    const dispatched = await onDispatchOrders(selectedIds, selectedDriver, selectedPriority)
     if (dispatched) setSelectedIds([])
   }
 
@@ -1675,6 +1706,7 @@ function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
           <span>{order.customer}</span>
         </div>
         <p>{order.address}</p>
+        {getOrderPriority(order) === 'Priority' && <span className="priority-badge">PRIORITY</span>}
       </label>
     )
   }
@@ -1686,6 +1718,7 @@ function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
         <div className="dispatch-toolbar">
           <label className="dispatch-select-all"><input type="checkbox" checked={allVisibleSelected} disabled={!visibleDispatchIds.length} onChange={toggleAll} />Select all New orders</label>
           <label className="select-field"><span>Driver</span><select value={selectedDriver} onChange={(event) => setSelectedDriver(event.target.value)}><option value="">Choose driver</option>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index} value={getDriverName(driver)}>{getDriverName(driver)}</option>)}</select></label>
+          <label className="select-field"><span>Priority</span><select value={selectedPriority} onChange={(event) => setSelectedPriority(event.target.value)}>{priorityOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
           <button className="primary-action" type="button" disabled={!selectedIds.length || !selectedDriver} onClick={handleSendOut}>Send Out for Delivery</button>
         </div>
         <div className="dispatch-list">
@@ -1888,6 +1921,7 @@ function parseOrdersCsv(csvText, fallbackOrderNumber) {
       receiver: '',
       failureReason: '',
       proofPhoto: '',
+      priority: 'Normal',
     }
   }).filter((order) => order.customer || order.phone || order.address)
 

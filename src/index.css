@@ -399,6 +399,39 @@ textarea:focus {
   font-weight: 800;
 }
 
+
+.priority-order-card {
+  border-color: #e2aaa6;
+  box-shadow: 0 10px 24px rgba(170, 63, 55, 0.08);
+}
+
+.priority-order-card::before {
+  background: #aa3f37;
+  opacity: 1;
+}
+
+.card-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.priority-badge {
+  display: inline-grid;
+  min-height: 24px;
+  place-items: center;
+  border: 1px solid #d9655c;
+  border-radius: 999px;
+  background: #fff5f2;
+  color: #aa3f37;
+  padding: 0 8px;
+  font-size: 0.66rem;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+}
+
 .status-pill {
   border-radius: 999px;
   padding: 6px 9px;
@@ -1319,8 +1352,8 @@ textarea:focus {
 
 .dispatch-toolbar {
   display: grid;
-  grid-template-columns: minmax(190px, 1fr) 240px 220px;
-  gap: 14px;
+  grid-template-columns: minmax(180px, 1fr) 220px 160px 210px;
+  gap: 12px;
   align-items: end;
   border-bottom: 1px solid #eee7df;
   padding: 18px;
@@ -1349,7 +1382,7 @@ textarea:focus {
 
 .dispatch-row {
   display: grid;
-  grid-template-columns: 28px minmax(180px, 0.45fr) minmax(220px, 1fr);
+  grid-template-columns: 28px minmax(170px, 0.42fr) minmax(220px, 1fr) auto;
   gap: 14px;
   align-items: center;
   border-bottom: 1px solid #eee7df;
