@@ -418,6 +418,34 @@ textarea:focus {
   justify-content: flex-end;
 }
 
+
+.priority-toggle,
+.form-card label.priority-toggle,
+.edit-list label.priority-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  color: #1f1712;
+  font-size: 0.86rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.priority-toggle input,
+.form-card label.priority-toggle input,
+.edit-list label.priority-toggle input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  box-shadow: none;
+}
+
+.dispatch-priority-toggle {
+  align-self: end;
+}
+
 .priority-badge {
   display: inline-grid;
   min-height: 24px;

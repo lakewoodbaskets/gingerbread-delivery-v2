@@ -1115,9 +1115,10 @@ function OrderCard({ order, onClick, drivers = [], canQuickDispatch = false, onD
             <option value="">Choose driver</option>
             {availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index} value={getDriverName(driver)}>{getDriverName(driver)}</option>)}
           </select>
-          <select value={dispatchPriority} onChange={(event) => setDispatchPriority(event.target.value)} onClick={(event) => event.stopPropagation()}>
-            {priorityOptions.map((option) => <option key={option}>{option}</option>)}
-          </select>
+          <label className="priority-toggle" onClick={(event) => event.stopPropagation()}>
+            <input type="checkbox" checked={dispatchPriority === 'Priority'} onChange={(event) => setDispatchPriority(event.target.checked ? 'Priority' : 'Normal')} />
+            Priority Order
+          </label>
           <button className="secondary-action" type="button" disabled={!dispatchDriver} onClick={handleQuickDispatch}>Out for Delivery</button>
         </div>
       )}
@@ -1254,7 +1255,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
           {!isDriverMode && <label>Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} /></label>}
           {!isDriverMode && <label>Driver<select value={getDriverName(draft.driver)} onChange={(event) => updateDraft('driver', event.target.value)}><option value="">Unassigned</option>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index}>{getDriverName(driver)}</option>)}</select></label>}
           {!isDriverMode && <label>Delivery Date<input type="date" value={draft.deliveryDate || getTodayDate()} onChange={(event) => updateDraft('deliveryDate', event.target.value)} /></label>}
-          {!isDriverMode && <label>Priority<select value={getOrderPriority(draft)} onChange={(event) => updateDraft('priority', event.target.value)}>{priorityOptions.map((option) => <option key={option}>{option}</option>)}</select></label>}
+          {!isDriverMode && <label className="priority-toggle"><input type="checkbox" checked={getOrderPriority(draft) === 'Priority'} onChange={(event) => updateDraft('priority', event.target.checked ? 'Priority' : 'Normal')} />Priority Order</label>}
           <label>Status<select disabled={isDriverMode && !canDriverEdit} value={draft.status} onChange={(event) => updateDraft('status', event.target.value)}>{statusChoices.map((option) => <option key={option}>{option}</option>)}</select></label>
           {!isDriverMode && <label>Notes<textarea value={draft.notes} onChange={(event) => updateDraft('notes', event.target.value)} rows="4" /></label>}
           {showReceiver && <label>Receiver Name<input disabled={isDriverMode && !canDriverEdit} required value={draft.receiver} onChange={(event) => updateDraft('receiver', event.target.value)} /></label>}
@@ -1353,7 +1354,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
           <label className="wide">Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} placeholder="Street, city, state" /></label>
           <label>Driver<select value={getDriverName(draft.driver)} onChange={(event) => updateDraft('driver', event.target.value)}><option value="">Unassigned</option>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index}>{getDriverName(driver)}</option>)}</select></label>
           <label>Delivery Date<input type="date" value={draft.deliveryDate || getTodayDate()} onChange={(event) => updateDraft('deliveryDate', event.target.value)} /></label>
-          <label>Priority<select value={getOrderPriority(draft)} onChange={(event) => updateDraft('priority', event.target.value)}>{priorityOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
+          <label className="priority-toggle"><input type="checkbox" checked={getOrderPriority(draft) === 'Priority'} onChange={(event) => updateDraft('priority', event.target.checked ? 'Priority' : 'Normal')} />Priority Order</label>
           <label className="wide">Notes<textarea value={draft.notes} onChange={(event) => updateDraft('notes', event.target.value)} placeholder="Delivery instructions" rows="4" /></label>
           {showReceiver && <label>Receiver Name<input value={draft.receiver} onChange={(event) => updateDraft('receiver', event.target.value)} placeholder="Receiver name" /></label>}
           {showFailureReason && <label className="wide">Failure Reason<textarea value={draft.failureReason} onChange={(event) => updateDraft('failureReason', event.target.value)} placeholder="Reason delivery failed" rows="3" /></label>}
@@ -1718,7 +1719,7 @@ function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
         <div className="dispatch-toolbar">
           <label className="dispatch-select-all"><input type="checkbox" checked={allVisibleSelected} disabled={!visibleDispatchIds.length} onChange={toggleAll} />Select all New orders</label>
           <label className="select-field"><span>Driver</span><select value={selectedDriver} onChange={(event) => setSelectedDriver(event.target.value)}><option value="">Choose driver</option>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index} value={getDriverName(driver)}>{getDriverName(driver)}</option>)}</select></label>
-          <label className="select-field"><span>Priority</span><select value={selectedPriority} onChange={(event) => setSelectedPriority(event.target.value)}>{priorityOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
+          <label className="priority-toggle dispatch-priority-toggle"><input type="checkbox" checked={selectedPriority === 'Priority'} onChange={(event) => setSelectedPriority(event.target.checked ? 'Priority' : 'Normal')} />Priority Order</label>
           <button className="primary-action" type="button" disabled={!selectedIds.length || !selectedDriver} onClick={handleSendOut}>Send Out for Delivery</button>
         </div>
         <div className="dispatch-list">
