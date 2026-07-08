@@ -4,7 +4,7 @@ import { sendDeliveredSMS } from './smsService'
 
 const initialOrders = [
   {
-    id: 'GBD-1048',
+    id: '1048',
     customer: 'Maya Chen',
     phone: '(312) 555-0188',
     address: '1840 W Armitage Ave, Chicago, IL',
@@ -16,7 +16,7 @@ const initialOrders = [
     proofPhoto: '',
   },
   {
-    id: 'GBD-1047',
+    id: '1047',
     customer: 'Owen Patel',
     phone: '(773) 555-0142',
     address: '500 N Michigan Ave, Chicago, IL',
@@ -28,7 +28,7 @@ const initialOrders = [
     proofPhoto: '',
   },
   {
-    id: 'GBD-1046',
+    id: '1046',
     customer: 'Elena Brooks',
     phone: '(847) 555-0191',
     address: '222 Merchandise Mart Plaza, Chicago, IL',
@@ -40,7 +40,7 @@ const initialOrders = [
     proofPhoto: '',
   },
   {
-    id: 'GBD-1045',
+    id: '1045',
     customer: 'Noah Williams',
     phone: '(708) 555-0165',
     address: '1452 N Wells St, Chicago, IL',
@@ -52,7 +52,7 @@ const initialOrders = [
     proofPhoto: '',
   },
   {
-    id: 'GBD-1044',
+    id: '1044',
     customer: 'Ari Kim',
     phone: '(312) 555-0177',
     address: '909 W Randolph St, Chicago, IL',
@@ -64,7 +64,7 @@ const initialOrders = [
     proofPhoto: '',
   },
   {
-    id: 'GBD-1043',
+    id: '1043',
     customer: 'Camila Torres',
     phone: '(773) 555-0109',
     address: '320 S Canal St, Chicago, IL',
@@ -128,6 +128,16 @@ function getOrderPriority(order = {}) {
 function comparePriority(a, b) {
   if (getOrderPriority(a) === getOrderPriority(b)) return 0
   return getOrderPriority(a) === 'Priority' ? -1 : 1
+}
+
+function getDisplayOrderNumber(value) {
+  const rawValue = typeof value === 'object' && value !== null ? value.id || value.order_no || '' : value
+  return String(rawValue || '').trim().replace(/^GBD-/i, '')
+}
+
+function getOrderSearchValues(order = {}) {
+  const rawOrderNumber = order.id || order.order_no || ''
+  return [rawOrderNumber, getDisplayOrderNumber(rawOrderNumber)]
 }
 
 const deliveryTimeZone = 'America/New_York'
@@ -258,7 +268,7 @@ function mapDeliveryFromRow(row = {}) {
 function mapDeliveryToRow(order = {}) {
   return {
     delivery_date: getDeliveryDate(order),
-    order_no: order.id || order.order_no || '',
+    order_no: getDisplayOrderNumber(order.id || order.order_no || ''),
     customer_name: order.customer || order.customer_name || '',
     phone: order.phone || '',
     address: order.address || '',
@@ -526,7 +536,7 @@ function App() {
         await sendDeliveredSMS({
           customer_name: savedOrder.customer,
           phone: savedOrder.phone,
-          order_no: savedOrder.id,
+          order_no: getDisplayOrderNumber(savedOrder),
           driver: getDriverName(savedOrder.driver),
           delivered_time: savedOrder.completedAt || new Date().toISOString(),
         })
@@ -699,7 +709,7 @@ function App() {
     return orders
       .filter((order) => {
         if (!normalized) return true
-        return [order.customer, order.phone, order.address, getDriverName(order.driver), order.id].some((value) =>
+        return [order.customer, order.phone, order.address, getDriverName(order.driver), ...getOrderSearchValues(order)].some((value) =>
           String(value || '').toLowerCase().includes(normalized),
         )
       })
@@ -815,8 +825,7 @@ function App() {
 function buildLabelPrintDocument(orders) {
   const labels = orders.map((order) => [
     '<section class="zebra-label">',
-    '<div class="label-topline"><span class="label-kicker">ORDER #</span><span class="label-date">' + escapeHtml(formatLabelDeliveryDate(order)) + '</span></div>',
-    '<strong class="label-order-number">' + escapeHtml(order?.id || '') + '</strong>',
+    '<div class="label-header"><div class="label-order-block"><span class="label-kicker">ORDER #</span><strong class="label-order-number">' + escapeHtml(getDisplayOrderNumber(order)) + '</strong></div><span class="label-date">' + escapeHtml(formatLabelDeliveryDate(order)) + '</span></div>',
     '<span class="label-customer">' + escapeHtml(order?.customer || '') + '</span>',
     '<p class="label-address">' + escapeHtml(order?.address || '') + '</p>',
     '</section>',
@@ -833,11 +842,12 @@ function buildLabelPrintDocument(orders) {
     'body { color: #000000; font-family: Arial, Helvetica, sans-serif; }' +
     '.print-note { box-sizing: border-box; width: 2.25in; margin: 0 0 0.12in; padding: 0.06in; color: #000000; font-size: 10px; line-height: 1.25; }' +
     '.zebra-label { display: flex; box-sizing: border-box; width: 2.25in; height: 1.25in; margin: 0; flex-direction: column; justify-content: center; overflow: hidden; page-break-after: always; break-after: page; page-break-inside: avoid; break-inside: avoid; padding: 0.07in 0.08in; background: #ffffff; color: #000000; }' +
-    '.label-topline { display: flex; align-items: baseline; justify-content: space-between; gap: 0.05in; color: #000000; line-height: 1; }' +
+    '.label-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.05in; color: #000000; line-height: 1; }' +
+    '.label-order-block { display: grid; gap: 0.002in; min-width: 0; }' +
     '.label-kicker, .label-date, .label-order-number, .label-customer, .label-address { display: block; color: #000000; letter-spacing: 0; overflow: visible; text-overflow: clip; }' +
     '.label-kicker { font-size: 0.085in; font-weight: 900; line-height: 1; white-space: nowrap; }' +
-    '.label-date { flex: 0 0 auto; max-width: 0.72in; text-align: right; font-size: 0.17in; font-weight: 900; line-height: 0.9; white-space: nowrap; }' +
-    '.label-order-number { margin-top: 0.002in; overflow: visible; font-size: 0.19in; font-weight: 900; line-height: 0.9; white-space: nowrap; }' +
+    '.label-date { align-self: end; flex: 0 0 auto; max-width: 0.72in; padding-bottom: 0.004in; text-align: right; font-size: 0.17in; font-weight: 900; line-height: 0.9; white-space: nowrap; }' +
+    '.label-order-number { overflow: visible; font-size: 0.19in; font-weight: 900; line-height: 0.9; white-space: nowrap; }' +
     '.label-customer, .label-address { overflow: visible; font-size: 0.205in; font-weight: 900; line-height: 0.92; white-space: normal; overflow-wrap: break-word; word-break: normal; }' +
     '.label-customer { margin-top: 0.026in; }' +
     '.label-address { margin: 0.018in 0 0; }' +
@@ -1107,7 +1117,7 @@ function OrderCard({ order, onClick, drivers = [], canQuickDispatch = false, onD
     <article className={isPriority ? 'order-card priority-order-card' : 'order-card'}>
       <button className="order-card-open" onClick={onClick} type="button">
         <div className="order-card-top">
-          <span>{order.id}</span>
+          <span>{getDisplayOrderNumber(order)}</span>
           <span className="card-badges">
             {isPriority && <span className="priority-badge">PRIORITY</span>}
             <span className={'status-pill ' + tone}>{order.status}</span>
@@ -1188,7 +1198,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
     try {
       const saveResult = await onSave({
         ...draft,
-        id: isDriverMode ? order.id : draft.id,
+        id: isDriverMode ? order.id : getDisplayOrderNumber(draft.id),
         customer: isDriverMode ? order.customer : draft.customer,
         phone: isDriverMode ? order.phone : draft.phone,
         address: isDriverMode ? order.address : draft.address,
@@ -1223,7 +1233,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
     setIsUploadingProof(true)
 
     try {
-      const safeOrderNumber = String(draft.id || order?.id || 'delivery').replace(/[^a-zA-Z0-9-_]/g, '-')
+      const safeOrderNumber = (getDisplayOrderNumber(draft) || getDisplayOrderNumber(order) || 'delivery').replace(/[^a-zA-Z0-9-_]/g, '-')
       const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-')
       const filePath = safeOrderNumber + '/' + Date.now() + '-' + safeFileName
       const { error: uploadError } = await supabase.storage
@@ -1258,12 +1268,12 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
       <div className="drawer-header">
         <button className="drawer-close" type="button" aria-label="Close order details" onClick={onClose}>X</button>
         <span>{isDriverMode ? 'Delivery update' : 'Edit order'}</span>
-        <h2>{draft.id || 'New order'}</h2>
+        <h2>{getDisplayOrderNumber(draft) || 'New order'}</h2>
         <p>{draft.customer || 'Customer details'}</p>
       </div>
       <form className="drawer-form" onSubmit={handleSubmit}>
         <div className="detail-list edit-list">
-          {!isDriverMode && <label>Order Number<input value={draft.id} onChange={(event) => updateDraft('id', event.target.value)} /></label>}
+          {!isDriverMode && <label>Order Number<input value={getDisplayOrderNumber(draft)} onChange={(event) => updateDraft('id', event.target.value)} /></label>}
           {!isDriverMode && <label>Customer Name<input value={draft.customer} onChange={(event) => updateDraft('customer', event.target.value)} /></label>}
           {!isDriverMode && <label>Phone<input value={draft.phone} onChange={(event) => updateDraft('phone', event.target.value)} /></label>}
           {!isDriverMode && <label>Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} /></label>}
@@ -1362,7 +1372,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
       <PageHeader eyebrow="Create" title="Add Order" subtitle="Enter delivery details for a new order" />
       <form className="form-card" onSubmit={handleSubmit}>
         <div className="form-grid">
-          <label>Order Number<input value={draft.id} onChange={(event) => updateDraft('id', event.target.value)} /></label>
+          <label>Order Number<input value={getDisplayOrderNumber(draft)} onChange={(event) => updateDraft('id', event.target.value)} /></label>
           <label>Customer name<input value={draft.customer} onChange={(event) => updateDraft('customer', event.target.value)} placeholder="Customer name" /></label>
           <label>Phone<input value={draft.phone} onChange={(event) => updateDraft('phone', event.target.value)} placeholder="Phone number" /></label>
           <label className="wide">Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} placeholder="Street, city, state" /></label>
@@ -1623,7 +1633,7 @@ function quickRowsFromTable(tableRows) {
   return dataRows
     .map((row) => ({
       deliveryDate: hasHeaderRow ? cellValue(row, headerMap.deliveryDate) : cellValue(row, 0),
-      orderNo: hasHeaderRow ? cellValue(row, headerMap.orderNo) : cellValue(row, 1),
+      orderNo: getDisplayOrderNumber(hasHeaderRow ? cellValue(row, headerMap.orderNo) : cellValue(row, 1)),
       customer: hasHeaderRow ? cellValue(row, headerMap.customer) : cellValue(row, 2),
       phone: hasHeaderRow ? cellValue(row, headerMap.phone) : cellValue(row, 3),
       address: hasHeaderRow ? cellValue(row, headerMap.address) : cellValue(row, 4),
@@ -1717,7 +1727,7 @@ function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
       <label className="dispatch-row" key={orderId}>
         <input type="checkbox" checked={selectedIds.includes(orderId)} onChange={() => toggleOrder(orderId)} />
         <div>
-          <strong>{order.id}</strong>
+          <strong>{getDisplayOrderNumber(order)}</strong>
           <span>{order.customer}</span>
         </div>
         <p>{order.address}</p>
@@ -1923,7 +1933,7 @@ function parseOrdersCsv(csvText, fallbackOrderNumber) {
   const headerIndex = Object.fromEntries(headers.map((header, index) => [header, index]))
   const fallbackBase = Number(fallbackOrderNumber.replace(/\D/g, '')) || 1000
   const orders = rows.slice(1).map((row, index) => {
-    const orderNumber = cellValue(row, headerIndex.order_no) || 'GBD-' + String(fallbackBase + index)
+    const orderNumber = getDisplayOrderNumber(cellValue(row, headerIndex.order_no)) || String(fallbackBase + index)
     return {
       id: orderNumber,
       deliveryDate: normalizeLocalDateString(cellValue(row, headerIndex.delivery_date)) || getTodayDate(),
@@ -1986,10 +1996,10 @@ function cellValue(row, index) {
 
 function getNextOrderNumber(currentOrders) {
   const highest = currentOrders.reduce((currentHighest, order) => {
-    const number = Number(order.id.replace(/\D/g, ''))
+    const number = Number(getDisplayOrderNumber(order).replace(/\D/g, ''))
     return Number.isFinite(number) ? Math.max(currentHighest, number) : currentHighest
   }, 1000)
-  return 'GBD-' + String(highest + 1)
+  return String(highest + 1)
 }
 
 export default App
