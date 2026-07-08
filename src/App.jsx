@@ -805,12 +805,13 @@ function buildLabelPrintDocument(orders) {
     'html, body { width: 2.25in; min-width: 0; margin: 0; padding: 0; overflow: visible; background: #ffffff; }' +
     'body { color: #000000; font-family: Arial, Helvetica, sans-serif; }' +
     '.print-note { box-sizing: border-box; width: 2.25in; margin: 0 0 0.12in; padding: 0.06in; color: #000000; font-size: 10px; line-height: 1.25; }' +
-    '.zebra-label { display: block; box-sizing: border-box; width: 2.25in; height: 1.25in; margin: 0; overflow: hidden; page-break-after: always; break-after: page; page-break-inside: avoid; break-inside: avoid; padding: 0.075in 0.08in 0.045in; background: #ffffff; color: #000000; }' +
-    '.label-kicker, .label-order-number, .label-customer, .label-address { display: block; color: #000000; letter-spacing: 0; }' +
-    '.label-kicker { font-size: 0.1in; font-weight: 900; line-height: 1; }' +
-    '.label-order-number { margin-top: 0.006in; overflow: hidden; font-size: 0.3in; font-weight: 900; line-height: 0.9; text-overflow: ellipsis; white-space: nowrap; }' +
-    '.label-customer { margin-top: 0.024in; overflow: hidden; font-size: 0.2in; font-weight: 850; line-height: 0.92; text-overflow: ellipsis; white-space: nowrap; }' +
-    '.label-address { margin: 0.018in 0 0; overflow: visible; font-size: 0.158in; font-weight: 850; line-height: 0.94; white-space: normal; overflow-wrap: break-word; word-break: normal; }' +
+    '.zebra-label { display: flex; box-sizing: border-box; width: 2.25in; height: 1.25in; margin: 0; flex-direction: column; justify-content: center; overflow: hidden; page-break-after: always; break-after: page; page-break-inside: avoid; break-inside: avoid; padding: 0.07in 0.08in; background: #ffffff; color: #000000; }' +
+    '.label-kicker, .label-order-number, .label-customer, .label-address { display: block; color: #000000; letter-spacing: 0; overflow: visible; text-overflow: clip; }' +
+    '.label-kicker { font-size: 0.085in; font-weight: 900; line-height: 1; white-space: nowrap; }' +
+    '.label-order-number { margin-top: 0.004in; overflow: visible; font-size: 0.19in; font-weight: 900; line-height: 0.92; white-space: nowrap; }' +
+    '.label-customer, .label-address { overflow: visible; font-size: 0.205in; font-weight: 900; line-height: 0.92; white-space: normal; overflow-wrap: break-word; word-break: normal; }' +
+    '.label-customer { margin-top: 0.035in; }' +
+    '.label-address { margin: 0.018in 0 0; }' +
     '.zebra-label:last-child { page-break-after: auto; break-after: auto; }' +
     '@media print { .print-note { display: none; } html, body { width: 2.25in !important; margin: 0 !important; padding: 0 !important; } .zebra-label { box-sizing: border-box !important; width: 2.25in !important; height: 1.25in !important; margin: 0 !important; overflow: hidden !important; } }' +
     '</style>' +
@@ -818,6 +819,26 @@ function buildLabelPrintDocument(orders) {
     '<body>' +
     '<p class="print-note">For Zebra labels, turn off browser print &quot;Headers and footers&quot;.</p>' +
     labels +
+    '<script>' +
+    '(function(){' +
+    'function fitLabel(label){' +
+    'var customer=label.querySelector(".label-customer");' +
+    'var address=label.querySelector(".label-address");' +
+    'var order=label.querySelector(".label-order-number");' +
+    'if(!customer||!address||!order)return;' +
+    'var bodySize=19.7;' +
+    'var orderSize=18.2;' +
+    'function apply(){customer.style.fontSize=bodySize+"px";address.style.fontSize=bodySize+"px";order.style.fontSize=orderSize+"px";}' +
+    'apply();' +
+    'while((label.scrollHeight>label.clientHeight||label.scrollWidth>label.clientWidth)&&bodySize>8){bodySize-=0.5;if(orderSize>13)orderSize-=0.25;apply();}' +
+    'while(order.scrollWidth>label.clientWidth&&orderSize>10){orderSize-=0.5;apply();}' +
+    '}' +
+    'function fitAll(){document.querySelectorAll(".zebra-label").forEach(fitLabel);}' +
+    'if(document.fonts&&document.fonts.ready){document.fonts.ready.then(fitAll);}else{fitAll();}' +
+    'window.addEventListener("beforeprint",fitAll);' +
+    'requestAnimationFrame(fitAll);' +
+    '})();' +
+    '</script>' +
     '</body>' +
     '</html>'
 }
