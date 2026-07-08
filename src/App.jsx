@@ -140,6 +140,12 @@ function getOrderSearchValues(order = {}) {
   return [rawOrderNumber, getDisplayOrderNumber(rawOrderNumber)]
 }
 
+function getPackageCount(order = {}) {
+  const count = Number(order?.packageCount ?? order?.package_count ?? 1)
+  if (!Number.isFinite(count)) return 1
+  return Math.max(1, Math.floor(count))
+}
+
 const deliveryTimeZone = 'America/New_York'
 const localDateFormatter = new Intl.DateTimeFormat('en-US', {
   timeZone: deliveryTimeZone,
@@ -255,6 +261,7 @@ function mapDeliveryFromRow(row = {}) {
     driver: getDriverName(row.driver),
     deliveryDate: normalizeLocalDateString(row.delivery_date) || '',
     priority: row.priority === 'Priority' ? 'Priority' : 'Normal',
+    packageCount: getPackageCount(row),
     status: row.status || 'New',
     notes: row.notes || '',
     receiver: row.receiver_name || '',
@@ -274,6 +281,7 @@ function mapDeliveryToRow(order = {}) {
     address: order.address || '',
     driver: getDriverName(order.driver),
     priority: getOrderPriority(order),
+    package_count: getPackageCount(order),
     status: order.status || 'New',
     notes: order.notes || '',
     receiver_name: order.status === 'Delivered' ? order.receiver || '' : '',
@@ -666,7 +674,7 @@ function App() {
     })
   }
 
-  async function handleDispatchOrders(orderIds, driverName, priority = '') {
+  async function handleDispatchOrders(orderIds, driverName, priority = '', packageCounts = {}) {
     const selectedIds = Array.isArray(orderIds) ? orderIds.filter(Boolean) : []
     const assignedDriver = getDriverName(driverName).trim()
     const dispatchPriority = priorityOptions.includes(priority) ? priority : ''
@@ -685,7 +693,8 @@ function App() {
     try {
       if (!supabase) throw new Error('Missing Supabase environment variables')
       const savedOrders = await Promise.all(selectedOrders.map(async (order) => {
-        const nextOrder = { ...order, driver: assignedDriver, priority: dispatchPriority || getOrderPriority(order), status: 'Out for Delivery' }
+        const orderId = order.dbId || order.id
+        const nextOrder = { ...order, driver: assignedDriver, priority: dispatchPriority || getOrderPriority(order), packageCount: getPackageCount({ packageCount: packageCounts[orderId] ?? order.packageCount }), status: 'Out for Delivery' }
         let query = supabase.from('deliveries').update(mapDeliveryToRow(nextOrder))
         query = order.dbId ? query.eq('id', order.dbId) : query.eq('order_no', order.id)
         const { data, error } = await query.select('*').single()
@@ -823,13 +832,17 @@ function App() {
 
 
 function buildLabelPrintDocument(orders) {
-  const labels = orders.map((order) => [
-    '<section class="zebra-label">',
-    '<div class="label-header"><div class="label-order-block"><span class="label-kicker">ORDER #</span><strong class="label-order-number">' + escapeHtml(getDisplayOrderNumber(order)) + '</strong></div><span class="label-date">' + escapeHtml(formatLabelDeliveryDate(order)) + '</span></div>',
-    '<span class="label-customer">' + escapeHtml(order?.customer || '') + '</span>',
-    '<p class="label-address">' + escapeHtml(order?.address || '') + '</p>',
-    '</section>',
-  ].join('')).join('')
+  const labels = orders.flatMap((order) => {
+    const packageCount = getPackageCount(order)
+    return Array.from({ length: packageCount }, (_, index) => [
+      '<section class="zebra-label">',
+      '<div class="label-header"><div class="label-order-block"><span class="label-kicker">ORDER #</span><strong class="label-order-number">' + escapeHtml(getDisplayOrderNumber(order)) + '</strong></div><span class="label-date">' + escapeHtml(formatLabelDeliveryDate(order)) + '</span></div>',
+      '<span class="label-customer">' + escapeHtml(order?.customer || '') + '</span>',
+      '<p class="label-address">' + escapeHtml(order?.address || '') + '</p>',
+      packageCount > 1 ? '<span class="label-package">Package ' + (index + 1) + ' of ' + packageCount + '</span>' : '',
+      '</section>',
+    ].join(''))
+  }).join('')
 
   return '<!doctype html>' +
     '<html>' +
@@ -844,13 +857,14 @@ function buildLabelPrintDocument(orders) {
     '.zebra-label { display: flex; box-sizing: border-box; width: 2.25in; height: 1.25in; margin: 0; flex-direction: column; justify-content: center; overflow: hidden; page-break-after: always; break-after: page; page-break-inside: avoid; break-inside: avoid; padding: 0.07in 0.08in; background: #ffffff; color: #000000; }' +
     '.label-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.05in; color: #000000; line-height: 1; }' +
     '.label-order-block { display: grid; gap: 0.002in; min-width: 0; }' +
-    '.label-kicker, .label-date, .label-order-number, .label-customer, .label-address { display: block; color: #000000; letter-spacing: 0; overflow: visible; text-overflow: clip; }' +
+    '.label-kicker, .label-date, .label-order-number, .label-customer, .label-address, .label-package { display: block; color: #000000; letter-spacing: 0; overflow: visible; text-overflow: clip; }' +
     '.label-kicker { font-size: 0.085in; font-weight: 900; line-height: 1; white-space: nowrap; }' +
     '.label-date { align-self: end; flex: 0 0 auto; max-width: 0.72in; padding-bottom: 0.004in; text-align: right; font-size: 0.17in; font-weight: 900; line-height: 0.9; white-space: nowrap; }' +
     '.label-order-number { overflow: visible; font-size: 0.19in; font-weight: 900; line-height: 0.9; white-space: nowrap; }' +
     '.label-customer, .label-address { overflow: visible; font-size: 0.205in; font-weight: 900; line-height: 0.92; white-space: normal; overflow-wrap: break-word; word-break: normal; }' +
     '.label-customer { margin-top: 0.026in; }' +
     '.label-address { margin: 0.018in 0 0; }' +
+    '.label-package { margin-top: 0.012in; font-size: 0.095in; font-weight: 900; line-height: 1; white-space: nowrap; }' +
     '.zebra-label:last-child { page-break-after: auto; break-after: auto; }' +
     '@media print { .print-note { display: none; } html, body { width: 2.25in !important; margin: 0 !important; padding: 0 !important; } .zebra-label { box-sizing: border-box !important; width: 2.25in !important; height: 1.25in !important; margin: 0 !important; overflow: hidden !important; } }' +
     '</style>' +
@@ -1205,6 +1219,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
         driver: isDriverMode ? order.driver : draft.driver,
         deliveryDate: isDriverMode ? order.deliveryDate : draft.deliveryDate || getTodayDate(),
         priority: isDriverMode ? getOrderPriority(order) : getOrderPriority(draft),
+        packageCount: isDriverMode ? getPackageCount(order) : getPackageCount(draft),
         notes: isDriverMode ? order.notes : draft.notes,
         receiver: showReceiver ? draft.receiver : '',
         failureReason: showFailureReason ? draft.failureReason : '',
@@ -1280,6 +1295,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
           {!isDriverMode && <label>Driver<select value={getDriverName(draft.driver)} onChange={(event) => updateDraft('driver', event.target.value)}><option value="">Unassigned</option>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index}>{getDriverName(driver)}</option>)}</select></label>}
           {!isDriverMode && <label>Delivery Date<input type="date" value={draft.deliveryDate || getTodayDate()} onChange={(event) => updateDraft('deliveryDate', event.target.value)} /></label>}
           {!isDriverMode && <label className="priority-toggle"><input type="checkbox" checked={getOrderPriority(draft) === 'Priority'} onChange={(event) => updateDraft('priority', event.target.checked ? 'Priority' : 'Normal')} />Priority Order</label>}
+          {!isDriverMode && <label>Package Count<input type="number" min="1" step="1" value={getPackageCount(draft)} onChange={(event) => updateDraft('packageCount', event.target.value)} /></label>}
           <label>Status<select disabled={isDriverMode && !canDriverEdit} value={draft.status} onChange={(event) => updateDraft('status', event.target.value)}>{statusChoices.map((option) => <option key={option}>{option}</option>)}</select></label>
           {!isDriverMode && <label>Notes<textarea value={draft.notes} onChange={(event) => updateDraft('notes', event.target.value)} rows="4" /></label>}
           {showReceiver && <label>Receiver Name<input disabled={isDriverMode && !canDriverEdit} required value={draft.receiver} onChange={(event) => updateDraft('receiver', event.target.value)} /></label>}
@@ -1338,6 +1354,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
     driver: '',
     deliveryDate: getTodayDate(),
     priority: 'Normal',
+    packageCount: 1,
     status: 'New',
     notes: '',
     receiver: '',
@@ -1359,6 +1376,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
       driver: getDriverName(draft.driver),
       deliveryDate: draft.deliveryDate || getTodayDate(),
       priority: getOrderPriority(draft),
+      packageCount: 1,
       status: 'New',
       receiver: showReceiver ? draft.receiver : '',
       failureReason: showFailureReason ? draft.failureReason : '',
@@ -1538,6 +1556,7 @@ function QuickEntry({ orders = [], onAddOrders }) {
         failureReason: '',
         proofPhoto: '',
         priority: 'Normal',
+        packageCount: 1,
       })
     })
 
@@ -1677,6 +1696,7 @@ function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
   const [selectedIds, setSelectedIds] = useState([])
   const [selectedDriver, setSelectedDriver] = useState('')
   const [selectedPriority, setSelectedPriority] = useState('Normal')
+  const [packageCounts, setPackageCounts] = useState({})
   const [collapsedDates, setCollapsedDates] = useState(() => new Set())
 
   function isDateCollapsed(dateKey) {
@@ -1709,6 +1729,10 @@ function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
     setSelectedIds((currentIds) => currentIds.includes(orderId) ? currentIds.filter((id) => id !== orderId) : [...currentIds, orderId])
   }
 
+  function updatePackageCount(orderId, value) {
+    setPackageCounts((currentCounts) => ({ ...currentCounts, [orderId]: getPackageCount({ packageCount: value }) }))
+  }
+
   function toggleAll() {
     setSelectedIds((currentIds) => {
       if (allVisibleSelected) return currentIds.filter((orderId) => !visibleDispatchIds.includes(orderId))
@@ -1717,21 +1741,29 @@ function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
   }
 
   async function handleSendOut() {
-    const dispatched = await onDispatchOrders(selectedIds, selectedDriver, selectedPriority)
+    const selectedPackageCounts = Object.fromEntries(selectedIds.map((orderId) => {
+      const order = newOrders.find((newOrder) => (newOrder.dbId || newOrder.id) === orderId)
+      return [orderId, getPackageCount({ packageCount: packageCounts[orderId] ?? getPackageCount(order) })]
+    }))
+    const dispatched = await onDispatchOrders(selectedIds, selectedDriver, selectedPriority, selectedPackageCounts)
     if (dispatched) setSelectedIds([])
   }
 
   function renderDispatchRow(order) {
     const orderId = order.dbId || order.id
+    const selected = selectedIds.includes(orderId)
     return (
       <label className="dispatch-row" key={orderId}>
-        <input type="checkbox" checked={selectedIds.includes(orderId)} onChange={() => toggleOrder(orderId)} />
+        <input type="checkbox" checked={selected} onChange={() => toggleOrder(orderId)} />
         <div>
           <strong>{getDisplayOrderNumber(order)}</strong>
           <span>{order.customer}</span>
         </div>
         <p>{order.address}</p>
-        {getOrderPriority(order) === 'Priority' && <span className="priority-badge">PRIORITY</span>}
+        <div className="dispatch-package-count">
+          {selected && <label>Packages<input type="number" min="1" step="1" value={packageCounts[orderId] ?? getPackageCount(order)} onChange={(event) => updatePackageCount(orderId, event.target.value)} onClick={(event) => event.stopPropagation()} /></label>}
+          {getOrderPriority(order) === 'Priority' && <span className="priority-badge">PRIORITY</span>}
+        </div>
       </label>
     )
   }
@@ -1947,6 +1979,7 @@ function parseOrdersCsv(csvText, fallbackOrderNumber) {
       failureReason: '',
       proofPhoto: '',
       priority: 'Normal',
+      packageCount: 1,
     }
   }).filter((order) => order.customer || order.phone || order.address)
 

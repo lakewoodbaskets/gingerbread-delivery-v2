@@ -89,3 +89,14 @@ drop constraint if exists deliveries_priority_check;
 
 alter table public.deliveries
 add constraint deliveries_priority_check check (priority in ('Normal', 'Priority'));
+
+
+-- Add package count for deliveries.
+alter table public.deliveries
+add column if not exists package_count integer not null default 1;
+
+alter table public.deliveries
+drop constraint if exists deliveries_package_count_check;
+
+alter table public.deliveries
+add constraint deliveries_package_count_check check (package_count >= 1);

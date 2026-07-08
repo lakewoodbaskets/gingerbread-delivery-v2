@@ -1439,6 +1439,26 @@ textarea:focus {
   font-weight: 850;
 }
 
+.dispatch-package-count {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.dispatch-package-count label {
+  display: grid;
+  gap: 5px;
+  color: #5f574f;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.dispatch-package-count input {
+  width: 86px;
+  height: 38px;
+  padding: 0 10px;
+}
+
 .dispatch-row p,
 .empty-state {
   color: #6f665e;
