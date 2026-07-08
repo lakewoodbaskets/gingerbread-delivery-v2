@@ -835,11 +835,11 @@ function buildLabelPrintDocument(orders) {
     '.zebra-label { display: flex; box-sizing: border-box; width: 2.25in; height: 1.25in; margin: 0; flex-direction: column; justify-content: center; overflow: hidden; page-break-after: always; break-after: page; page-break-inside: avoid; break-inside: avoid; padding: 0.07in 0.08in; background: #ffffff; color: #000000; }' +
     '.label-topline { display: flex; align-items: baseline; justify-content: space-between; gap: 0.05in; color: #000000; line-height: 1; }' +
     '.label-kicker, .label-date, .label-order-number, .label-customer, .label-address { display: block; color: #000000; letter-spacing: 0; overflow: visible; text-overflow: clip; }' +
-    '.label-kicker, .label-date { font-size: 0.085in; font-weight: 900; line-height: 1; white-space: nowrap; }' +
-    '.label-date { text-align: right; }' +
-    '.label-order-number { margin-top: 0.004in; overflow: visible; font-size: 0.19in; font-weight: 900; line-height: 0.92; white-space: nowrap; }' +
+    '.label-kicker { font-size: 0.085in; font-weight: 900; line-height: 1; white-space: nowrap; }' +
+    '.label-date { flex: 0 0 auto; max-width: 0.72in; text-align: right; font-size: 0.17in; font-weight: 900; line-height: 0.9; white-space: nowrap; }' +
+    '.label-order-number { margin-top: 0.002in; overflow: visible; font-size: 0.19in; font-weight: 900; line-height: 0.9; white-space: nowrap; }' +
     '.label-customer, .label-address { overflow: visible; font-size: 0.205in; font-weight: 900; line-height: 0.92; white-space: normal; overflow-wrap: break-word; word-break: normal; }' +
-    '.label-customer { margin-top: 0.035in; }' +
+    '.label-customer { margin-top: 0.026in; }' +
     '.label-address { margin: 0.018in 0 0; }' +
     '.zebra-label:last-child { page-break-after: auto; break-after: auto; }' +
     '@media print { .print-note { display: none; } html, body { width: 2.25in !important; margin: 0 !important; padding: 0 !important; } .zebra-label { box-sizing: border-box !important; width: 2.25in !important; height: 1.25in !important; margin: 0 !important; overflow: hidden !important; } }' +
