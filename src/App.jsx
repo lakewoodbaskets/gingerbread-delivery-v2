@@ -208,6 +208,18 @@ function getDateGroupLabel(dateValue) {
   return new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' }).format(weekdayDate).toUpperCase()
 }
 
+function formatLabelDeliveryDate(order) {
+  const normalizedDate = getDeliveryDate(order)
+  const match = normalizedDate.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match) return ''
+
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const weekdayDate = new Date(Date.UTC(Number(match[1]), month - 1, day, 12))
+  const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'UTC' }).format(weekdayDate)
+  return month + '/' + day + ' ' + weekday
+}
+
 function getCompletedAt(order) {
   return order?.status === 'Delivered' ? order?.completedAt || order?.completed_at || new Date().toISOString() : null
 }
@@ -803,7 +815,7 @@ function App() {
 function buildLabelPrintDocument(orders) {
   const labels = orders.map((order) => [
     '<section class="zebra-label">',
-    '<span class="label-kicker">ORDER #</span>',
+    '<div class="label-topline"><span class="label-kicker">ORDER #</span><span class="label-date">' + escapeHtml(formatLabelDeliveryDate(order)) + '</span></div>',
     '<strong class="label-order-number">' + escapeHtml(order?.id || '') + '</strong>',
     '<span class="label-customer">' + escapeHtml(order?.customer || '') + '</span>',
     '<p class="label-address">' + escapeHtml(order?.address || '') + '</p>',
@@ -821,8 +833,10 @@ function buildLabelPrintDocument(orders) {
     'body { color: #000000; font-family: Arial, Helvetica, sans-serif; }' +
     '.print-note { box-sizing: border-box; width: 2.25in; margin: 0 0 0.12in; padding: 0.06in; color: #000000; font-size: 10px; line-height: 1.25; }' +
     '.zebra-label { display: flex; box-sizing: border-box; width: 2.25in; height: 1.25in; margin: 0; flex-direction: column; justify-content: center; overflow: hidden; page-break-after: always; break-after: page; page-break-inside: avoid; break-inside: avoid; padding: 0.07in 0.08in; background: #ffffff; color: #000000; }' +
-    '.label-kicker, .label-order-number, .label-customer, .label-address { display: block; color: #000000; letter-spacing: 0; overflow: visible; text-overflow: clip; }' +
-    '.label-kicker { font-size: 0.085in; font-weight: 900; line-height: 1; white-space: nowrap; }' +
+    '.label-topline { display: flex; align-items: baseline; justify-content: space-between; gap: 0.05in; color: #000000; line-height: 1; }' +
+    '.label-kicker, .label-date, .label-order-number, .label-customer, .label-address { display: block; color: #000000; letter-spacing: 0; overflow: visible; text-overflow: clip; }' +
+    '.label-kicker, .label-date { font-size: 0.085in; font-weight: 900; line-height: 1; white-space: nowrap; }' +
+    '.label-date { text-align: right; }' +
     '.label-order-number { margin-top: 0.004in; overflow: visible; font-size: 0.19in; font-weight: 900; line-height: 0.92; white-space: nowrap; }' +
     '.label-customer, .label-address { overflow: visible; font-size: 0.205in; font-weight: 900; line-height: 0.92; white-space: normal; overflow-wrap: break-word; word-break: normal; }' +
     '.label-customer { margin-top: 0.035in; }' +
