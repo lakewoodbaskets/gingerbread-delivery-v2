@@ -382,6 +382,75 @@ async function loadDrivers() {
   return (data || []).map(mapDriverFromRow)
 }
 
+async function loadBackupData() {
+  if (!supabase) throw new Error('Missing Supabase environment variables')
+  const [deliveriesResult, driversResult, settingsResult] = await Promise.all([
+    supabase.from('deliveries').select('*').order('created_at', { ascending: false }),
+    supabase.from('drivers').select('*').order('name', { ascending: true }),
+    supabase.from('settings').select('*').order('created_at', { ascending: true }).limit(1).maybeSingle(),
+  ])
+
+  if (deliveriesResult.error) throw deliveriesResult.error
+  if (driversResult.error) throw driversResult.error
+  if (settingsResult.error) throw settingsResult.error
+
+  return {
+    version: 1,
+    created_at: new Date().toISOString(),
+    deliveries: deliveriesResult.data || [],
+    drivers: driversResult.data || [],
+    settings: settingsResult.data || mapSettingsToRow(defaultSettings),
+  }
+}
+
+function pickKnownFields(row = {}, fields = []) {
+  return fields.reduce((nextRow, field) => {
+    if (Object.prototype.hasOwnProperty.call(row, field)) nextRow[field] = row[field]
+    return nextRow
+  }, {})
+}
+
+function validateBackupPayload(payload) {
+  if (!payload || typeof payload !== 'object') throw new Error('Backup file is not valid JSON data.')
+  if (!Array.isArray(payload.deliveries)) throw new Error('Backup file is missing deliveries.')
+  if (!Array.isArray(payload.drivers)) throw new Error('Backup file is missing drivers.')
+  if (!payload.settings || typeof payload.settings !== 'object') throw new Error('Backup file is missing settings.')
+}
+
+async function restoreBackupData(payload) {
+  validateBackupPayload(payload)
+  if (!supabase) throw new Error('Missing Supabase environment variables')
+
+  const deliveryFields = ['id', 'created_at', 'updated_at', 'delivery_date', 'order_no', 'customer_name', 'phone', 'address', 'driver', 'priority', 'package_count', 'status', 'notes', 'receiver_name', 'proof_photo_url', 'signature_url', 'failed_reason', 'completed_at', 'archived_at']
+  const driverFields = ['id', 'created_at', 'name', 'pin', 'active']
+  const settingsFields = ['id', 'company_name', 'office_pin', 'archive_after_days', 'delete_after_days', 'logo_url', 'created_at', 'updated_at']
+  const deliveries = payload.deliveries.map((row) => pickKnownFields(row, deliveryFields)).filter((row) => row.order_no || row.customer_name || row.address)
+  const drivers = payload.drivers.map((row) => pickKnownFields(row, driverFields)).filter((row) => row.name)
+  const settingsRow = { ...pickKnownFields(payload.settings, settingsFields), id: payload.settings.id || 1 }
+
+  const deleteDeliveries = await supabase.from('deliveries').delete().not('id', 'is', null)
+  if (deleteDeliveries.error) throw deleteDeliveries.error
+
+  const deleteDrivers = await supabase.from('drivers').delete().not('id', 'is', null)
+  if (deleteDrivers.error) throw deleteDrivers.error
+
+  if (deliveries.length) {
+    const { error } = await supabase.from('deliveries').insert(deliveries)
+    if (error) throw error
+  }
+
+  if (drivers.length) {
+    const { error } = await supabase.from('drivers').insert(drivers)
+    if (error) throw error
+  }
+
+  const { error: settingsError } = await supabase.from('settings').upsert(settingsRow, { onConflict: 'id' })
+  if (settingsError) throw settingsError
+
+  const [restoredSettings, restoredDeliveries, restoredDrivers] = await Promise.all([loadSettings(), loadDeliveries(), loadDrivers()])
+  return { settings: restoredSettings, deliveries: restoredDeliveries, drivers: restoredDrivers }
+}
+
 function App() {
   const [orders, setOrders] = useState([])
   const [drivers, setDrivers] = useState([])
@@ -394,6 +463,13 @@ function App() {
   const [session, setSession] = useState(null)
   const [settings, setSettings] = useState(defaultSettings)
   const [toast, setToast] = useState(null)
+  const [backupInfo, setBackupInfo] = useState(() => {
+    try {
+      return JSON.parse(window.localStorage.getItem('gingerbreadBackupInfo') || '{}')
+    } catch {
+      return {}
+    }
+  })
   const toastTimeoutRef = useRef(null)
 
   function showToast(message, type = 'success') {
@@ -480,6 +556,48 @@ function App() {
     } catch (error) {
       logSupabaseError('Failed to save settings', error)
       showToast('Save failed', 'error')
+      throw error
+    }
+  }
+
+  async function handleCreateBackup() {
+    try {
+      const backup = await loadBackupData()
+      const timestamp = backup.created_at.replace(/[:.]/g, '-').slice(0, 19)
+      const fileName = 'gingerbread-delivery-backup-' + timestamp + '.json'
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      const nextBackupInfo = { lastBackupCreated: backup.created_at, fileName }
+      setBackupInfo(nextBackupInfo)
+      window.localStorage.setItem('gingerbreadBackupInfo', JSON.stringify(nextBackupInfo))
+      showToast('Backup created')
+      return nextBackupInfo
+    } catch (error) {
+      logSupabaseError('Failed to create backup', error)
+      showToast('Backup failed', 'error')
+      throw error
+    }
+  }
+
+  async function handleRestoreBackup(payload) {
+    try {
+      const restored = await restoreBackupData(payload)
+      setSettings(restored.settings)
+      setOrders(restored.deliveries)
+      setDrivers(restored.drivers)
+      setSelectedOrder(null)
+      showToast('Backup restored')
+      return restored
+    } catch (error) {
+      logSupabaseError('Failed to restore backup', error)
+      showToast('Restore failed', 'error')
       throw error
     }
   }
@@ -806,7 +924,7 @@ function App() {
           />
         )}
         {!isDriverSession && activeView === 'history' && <History orders={orders} setSelectedOrder={setSelectedOrder} />}
-        {!isDriverSession && activeView === 'settings' && <Settings settings={settings} onSaveSettings={handleSaveSettings} />}
+        {!isDriverSession && activeView === 'settings' && <Settings settings={settings} backupInfo={backupInfo} onSaveSettings={handleSaveSettings} onCreateBackup={handleCreateBackup} onRestoreBackup={handleRestoreBackup} />}
       </main>
       {showDrawer && (
         <div className="drawer-layer" aria-label="Order details panel">
@@ -1886,9 +2004,12 @@ function History({ orders, setSelectedOrder }) {
   )
 }
 
-function Settings({ settings, onSaveSettings }) {
+function Settings({ settings, backupInfo = {}, onSaveSettings, onCreateBackup, onRestoreBackup }) {
   const [draft, setDraft] = useState(settings || defaultSettings)
   const [message, setMessage] = useState('')
+  const [backupMessage, setBackupMessage] = useState('')
+  const [backupFileName, setBackupFileName] = useState(backupInfo.fileName || '')
+  const restoreInputRef = useRef(null)
 
   function updateDraft(field, value) {
     setMessage('')
@@ -1921,6 +2042,43 @@ function Settings({ settings, onSaveSettings }) {
     updateDraft('companyLogoName', file?.name || '')
   }
 
+  async function handleCreateBackupClick() {
+    setBackupMessage('')
+    const nextBackupInfo = await onCreateBackup?.()
+    if (nextBackupInfo?.fileName) setBackupFileName(nextBackupInfo.fileName)
+    setBackupMessage('Backup created.')
+  }
+
+  async function handleRestoreFileChange(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    try {
+      setBackupMessage('')
+      const text = await file.text()
+      const payload = JSON.parse(text)
+      validateBackupPayload(payload)
+      const deliveryCount = payload.deliveries.length
+      const driverCount = payload.drivers.length
+      const confirmed = window.confirm('Restore this backup? This will replace current deliveries, drivers, and settings with ' + deliveryCount + ' deliveries and ' + driverCount + ' drivers.')
+      if (!confirmed) return
+      await onRestoreBackup?.(payload)
+      setBackupFileName(file.name)
+      setBackupMessage('Backup restored.')
+    } catch (error) {
+      console.error(error)
+      setBackupMessage(error?.message || 'Could not restore that backup file.')
+    }
+  }
+
+  function formatBackupDate(value) {
+    if (!value) return 'No backup created yet'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return value
+    return date.toLocaleString()
+  }
+
   return (
     <section className="single-view">
       <PageHeader eyebrow="Workspace" title="Settings" subtitle="Office settings" />
@@ -1934,6 +2092,20 @@ function Settings({ settings, onSaveSettings }) {
         {message && <p className="drawer-message saved-message">{message}</p>}
         <button className="primary-action" type="submit">Save Settings</button>
       </form>
+      <section className="form-card settings-card backup-card">
+        <div className="section-heading">
+          <h2>Backup</h2>
+          <span>Export or restore app data</span>
+        </div>
+        <Detail label="Last Backup Created" value={formatBackupDate(backupInfo.lastBackupCreated)} />
+        <Detail label="Backup file name" value={backupFileName || 'No backup file yet'} />
+        <input ref={restoreInputRef} className="hidden-file-input" type="file" accept="application/json,.json" onChange={handleRestoreFileChange} />
+        {backupMessage && <p className="drawer-message saved-message">{backupMessage}</p>}
+        <div className="backup-actions">
+          <button className="primary-action" type="button" onClick={handleCreateBackupClick}>Create Backup</button>
+          <button className="secondary-action" type="button" onClick={() => restoreInputRef.current?.click()}>Restore Backup</button>
+        </div>
+      </section>
     </section>
   )
 }
