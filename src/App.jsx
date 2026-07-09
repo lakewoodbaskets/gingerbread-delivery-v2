@@ -410,42 +410,63 @@ function pickKnownFields(row = {}, fields = []) {
   }, {})
 }
 
-function validateBackupPayload(payload) {
-  if (!payload || typeof payload !== 'object') throw new Error('Backup file is not valid JSON data.')
-  if (!Array.isArray(payload.deliveries)) throw new Error('Backup file is missing deliveries.')
-  if (!Array.isArray(payload.drivers)) throw new Error('Backup file is missing drivers.')
-  if (!payload.settings || typeof payload.settings !== 'object') throw new Error('Backup file is missing settings.')
+function requireBackupObject(value, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(label + ' must be an object.')
 }
 
-async function restoreBackupData(payload) {
-  validateBackupPayload(payload)
-  if (!supabase) throw new Error('Missing Supabase environment variables')
+function requireBackupString(row, field, label) {
+  if (!String(row?.[field] || '').trim()) throw new Error(label + ' is missing ' + field + '.')
+}
 
+function validateBackupPayload(payload) {
+  if (!payload || typeof payload !== 'object') throw new Error('Backup file is not valid JSON data.')
+  if (payload.version !== 1) throw new Error('Backup version is not supported.')
+  if (!Array.isArray(payload.deliveries)) throw new Error('Backup file is missing deliveries.')
+  if (!Array.isArray(payload.drivers)) throw new Error('Backup file is missing drivers.')
+  requireBackupObject(payload.settings, 'Backup settings')
+
+  payload.deliveries.forEach((delivery, index) => {
+    requireBackupObject(delivery, 'Delivery #' + (index + 1))
+    requireBackupString(delivery, 'delivery_date', 'Delivery #' + (index + 1))
+    requireBackupString(delivery, 'order_no', 'Delivery #' + (index + 1))
+    requireBackupString(delivery, 'customer_name', 'Delivery #' + (index + 1))
+    requireBackupString(delivery, 'phone', 'Delivery #' + (index + 1))
+    requireBackupString(delivery, 'address', 'Delivery #' + (index + 1))
+    requireBackupString(delivery, 'status', 'Delivery #' + (index + 1))
+  })
+
+  payload.drivers.forEach((driver, index) => {
+    requireBackupObject(driver, 'Driver #' + (index + 1))
+    requireBackupString(driver, 'name', 'Driver #' + (index + 1))
+    requireBackupString(driver, 'pin', 'Driver #' + (index + 1))
+    if (typeof driver.active !== 'boolean') throw new Error('Driver #' + (index + 1) + ' is missing active status.')
+  })
+
+  requireBackupString(payload.settings, 'company_name', 'Settings')
+  requireBackupString(payload.settings, 'office_pin', 'Settings')
+  if (!Number.isFinite(Number(payload.settings.archive_after_days))) throw new Error('Settings archive_after_days is invalid.')
+  if (!Number.isFinite(Number(payload.settings.delete_after_days))) throw new Error('Settings delete_after_days is invalid.')
+}
+
+function prepareBackupForRestore(payload) {
+  validateBackupPayload(payload)
   const deliveryFields = ['id', 'created_at', 'updated_at', 'delivery_date', 'order_no', 'customer_name', 'phone', 'address', 'driver', 'priority', 'package_count', 'status', 'notes', 'receiver_name', 'proof_photo_url', 'signature_url', 'failed_reason', 'completed_at', 'archived_at']
   const driverFields = ['id', 'created_at', 'name', 'pin', 'active']
   const settingsFields = ['id', 'company_name', 'office_pin', 'archive_after_days', 'delete_after_days', 'logo_url', 'created_at', 'updated_at']
-  const deliveries = payload.deliveries.map((row) => pickKnownFields(row, deliveryFields)).filter((row) => row.order_no || row.customer_name || row.address)
-  const drivers = payload.drivers.map((row) => pickKnownFields(row, driverFields)).filter((row) => row.name)
-  const settingsRow = { ...pickKnownFields(payload.settings, settingsFields), id: payload.settings.id || 1 }
-
-  const deleteDeliveries = await supabase.from('deliveries').delete().not('id', 'is', null)
-  if (deleteDeliveries.error) throw deleteDeliveries.error
-
-  const deleteDrivers = await supabase.from('drivers').delete().not('id', 'is', null)
-  if (deleteDrivers.error) throw deleteDrivers.error
-
-  if (deliveries.length) {
-    const { error } = await supabase.from('deliveries').insert(deliveries)
-    if (error) throw error
+  return {
+    version: 1,
+    deliveries: payload.deliveries.map((row) => pickKnownFields(row, deliveryFields)),
+    drivers: payload.drivers.map((row) => pickKnownFields(row, driverFields)),
+    settings: { ...pickKnownFields(payload.settings, settingsFields), id: 1 },
   }
+}
 
-  if (drivers.length) {
-    const { error } = await supabase.from('drivers').insert(drivers)
-    if (error) throw error
-  }
+async function restoreBackupData(payload) {
+  const restorePayload = prepareBackupForRestore(payload)
+  if (!supabase) throw new Error('Missing Supabase environment variables')
 
-  const { error: settingsError } = await supabase.from('settings').upsert(settingsRow, { onConflict: 'id' })
-  if (settingsError) throw settingsError
+  const { error } = await supabase.rpc('restore_backup', { backup_payload: restorePayload })
+  if (error) throw error
 
   const [restoredSettings, restoredDeliveries, restoredDrivers] = await Promise.all([loadSettings(), loadDeliveries(), loadDrivers()])
   return { settings: restoredSettings, deliveries: restoredDeliveries, drivers: restoredDrivers }
@@ -560,20 +581,24 @@ function App() {
     }
   }
 
+  function downloadBackupFile(backup, fileName) {
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
   async function handleCreateBackup() {
     try {
       const backup = await loadBackupData()
       const timestamp = backup.created_at.replace(/[:.]/g, '-').slice(0, 19)
       const fileName = 'gingerbread-delivery-backup-' + timestamp + '.json'
-      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = fileName
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      URL.revokeObjectURL(url)
+      downloadBackupFile(backup, fileName)
       const nextBackupInfo = { lastBackupCreated: backup.created_at, fileName }
       setBackupInfo(nextBackupInfo)
       window.localStorage.setItem('gingerbreadBackupInfo', JSON.stringify(nextBackupInfo))
@@ -588,11 +613,19 @@ function App() {
 
   async function handleRestoreBackup(payload) {
     try {
+      prepareBackupForRestore(payload)
+      const currentBackup = await loadBackupData()
+      const timestamp = currentBackup.created_at.replace(/[:.]/g, '-').slice(0, 19)
+      const safetyFileName = 'gingerbread-delivery-pre-restore-backup-' + timestamp + '.json'
+      downloadBackupFile(currentBackup, safetyFileName)
       const restored = await restoreBackupData(payload)
       setSettings(restored.settings)
       setOrders(restored.deliveries)
       setDrivers(restored.drivers)
       setSelectedOrder(null)
+      const nextBackupInfo = { lastBackupCreated: currentBackup.created_at, fileName: safetyFileName }
+      setBackupInfo(nextBackupInfo)
+      window.localStorage.setItem('gingerbreadBackupInfo', JSON.stringify(nextBackupInfo))
       showToast('Backup restored')
       return restored
     } catch (error) {
@@ -2061,8 +2094,8 @@ function Settings({ settings, backupInfo = {}, onSaveSettings, onCreateBackup, o
       validateBackupPayload(payload)
       const deliveryCount = payload.deliveries.length
       const driverCount = payload.drivers.length
-      const confirmed = window.confirm('Restore this backup? This will replace current deliveries, drivers, and settings with ' + deliveryCount + ' deliveries and ' + driverCount + ' drivers.')
-      if (!confirmed) return
+      const confirmed = window.prompt('Restore will first download a safety backup, then replace current deliveries, drivers, and settings with ' + deliveryCount + ' deliveries and ' + driverCount + ' drivers. Type RESTORE to continue.')
+      if (confirmed !== 'RESTORE') return
       await onRestoreBackup?.(payload)
       setBackupFileName(file.name)
       setBackupMessage('Backup restored.')
