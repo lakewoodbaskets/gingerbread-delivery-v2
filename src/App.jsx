@@ -481,6 +481,7 @@ function App() {
   const [sort, setSort] = useState('Newest First')
   const [dateFilter, setDateFilter] = useState('Today')
   const [selectedOrder, setSelectedOrder] = useState(null)
+  const [printPromptOrder, setPrintPromptOrder] = useState(null)
   const [session, setSession] = useState(null)
   const [settings, setSettings] = useState(defaultSettings)
   const [toast, setToast] = useState(null)
@@ -651,6 +652,7 @@ function App() {
       setSelectedOrder(null)
       setActiveView('orders')
       showToast('Order added')
+      setPrintPromptOrder(savedOrder)
       return savedOrder
     } catch (error) {
       logSupabaseError('Failed to add order', error)
@@ -948,7 +950,7 @@ function App() {
             onDispatchOrders={handleDispatchOrders}
           />
         )}
-        {!isDriverSession && activeView === 'add' && <AddOrder drivers={safeDrivers} onAddOrder={handleAddOrder} onPrintLabels={handlePrintSlips} nextOrderNumber={getNextOrderNumber(orders)} />}
+        {!isDriverSession && activeView === 'add' && <AddOrder drivers={safeDrivers} onAddOrder={handleAddOrder} nextOrderNumber={getNextOrderNumber(orders)} />}
         {!isDriverSession && activeView === 'quick' && <QuickEntry orders={orders} onAddOrders={handleAddOrders} onPrintLabels={handlePrintSlips} />}
         {!isDriverSession && activeView === 'dispatch' && <Dispatch orders={orders} drivers={safeDrivers} onDispatchOrders={handleDispatchOrders} />}
         {!isDriverSession && activeView === 'drivers' && (
@@ -975,6 +977,20 @@ function App() {
             onDelete={isDriverSession ? null : handleDeleteOrder}
             onToast={showToast}
             onPrintSlip={isDriverSession ? null : handlePrintSlips}
+          />
+        </div>
+      )}
+      {printPromptOrder && (
+        <div className="modal-layer" aria-label="Print label prompt">
+          <button className="modal-scrim" type="button" aria-label="Close print label prompt" onClick={() => setPrintPromptOrder(null)} />
+          <PrintPrompt
+            title="Print label now?"
+            printLabel="Print Label"
+            onPrint={() => {
+              handlePrintSlips(printPromptOrder)
+              setPrintPromptOrder(null)
+            }}
+            onDismiss={() => setPrintPromptOrder(null)}
           />
         </div>
       )}
@@ -1516,7 +1532,7 @@ function PrintPrompt({ title, printLabel, onPrint, onDismiss }) {
   )
 }
 
-function AddOrder({ drivers = [], onAddOrder, onPrintLabels, nextOrderNumber }) {
+function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
   const availableDrivers = Array.isArray(drivers) ? drivers.filter(Boolean) : []
   const emptyOrder = {
     id: nextOrderNumber,
@@ -1534,7 +1550,6 @@ function AddOrder({ drivers = [], onAddOrder, onPrintLabels, nextOrderNumber }) 
     proofPhoto: '',
   }
   const [draft, setDraft] = useState(emptyOrder)
-  const [printPromptOrder, setPrintPromptOrder] = useState(null)
   const showReceiver = draft.status === 'Delivered'
   const showFailureReason = draft.status === 'Failed'
 
@@ -1544,7 +1559,7 @@ function AddOrder({ drivers = [], onAddOrder, onPrintLabels, nextOrderNumber }) 
 
   async function handleSubmit(event) {
     event.preventDefault()
-    const savedOrder = await onAddOrder({
+    await onAddOrder({
       ...draft,
       driver: getDriverName(draft.driver),
       deliveryDate: draft.deliveryDate || getTodayDate(),
@@ -1556,7 +1571,6 @@ function AddOrder({ drivers = [], onAddOrder, onPrintLabels, nextOrderNumber }) 
       proofPhoto: showReceiver ? draft.proofPhoto : '',
     })
     setDraft(emptyOrder)
-    if (savedOrder) setPrintPromptOrder(savedOrder)
   }
 
   return (
@@ -1580,17 +1594,6 @@ function AddOrder({ drivers = [], onAddOrder, onPrintLabels, nextOrderNumber }) 
           <button className="primary-action" type="submit">Save Order</button>
         </div>
       </form>
-      {printPromptOrder && (
-        <PrintPrompt
-          title="Print label now?"
-          printLabel="Print Label"
-          onPrint={() => {
-            onPrintLabels?.(printPromptOrder)
-            setPrintPromptOrder(null)
-          }}
-          onDismiss={() => setPrintPromptOrder(null)}
-        />
-      )}
     </section>
   )
 }

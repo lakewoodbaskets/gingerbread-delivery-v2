@@ -1727,3 +1727,26 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 }
+
+.modal-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.modal-scrim {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(31, 23, 18, 0.28);
+}
+
+.modal-layer .print-prompt {
+  position: relative;
+  z-index: 1;
+  width: min(420px, calc(100vw - 36px));
+  margin-top: 0;
+}
