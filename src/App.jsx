@@ -148,9 +148,50 @@ function getDisplayOrderNumber(value) {
   return String(rawValue || '').trim().replace(/^GBD-/i, '')
 }
 
+function normalizeSearchText(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function normalizePhoneSearch(value) {
+  return String(value || '').replace(/\D/g, '')
+}
+
 function getOrderSearchValues(order = {}) {
   const rawOrderNumber = order.id || order.order_no || ''
-  return [rawOrderNumber, getDisplayOrderNumber(rawOrderNumber)]
+  return [
+    rawOrderNumber,
+    getDisplayOrderNumber(rawOrderNumber),
+    order.customer,
+    order.customer_name,
+    order.phone,
+    order.address,
+    getDriverName(order.driver),
+  ]
+}
+
+function orderMatchesSearch(order, searchQuery) {
+  const normalizedQuery = normalizeSearchText(searchQuery)
+  if (normalizedQuery.length < 2) return true
+
+  const textMatches = getOrderSearchValues(order).some((value) => normalizeSearchText(value).includes(normalizedQuery))
+  if (textMatches) return true
+
+  const phoneQuery = normalizePhoneSearch(searchQuery)
+  if (phoneQuery.length < 2) return false
+  return normalizePhoneSearch(order?.phone).includes(phoneQuery)
+}
+
+function getSortValue(order = {}) {
+  return String(order?.createdAt || order?.created_at || getDeliveryDate(order) || order?.id || order?.order_no || '')
+}
+
+function sortOrders(ordersToSort = [], sortMode = 'Newest First') {
+  return [...ordersToSort].sort((a, b) => {
+    if (sortMode === 'Customer A-Z') return String(a.customer || '').localeCompare(String(b.customer || '')) || getDisplayOrderNumber(a).localeCompare(getDisplayOrderNumber(b))
+    if (sortMode === 'Customer Z-A') return String(b.customer || '').localeCompare(String(a.customer || '')) || getDisplayOrderNumber(b).localeCompare(getDisplayOrderNumber(a))
+    if (sortMode === 'Oldest First') return getSortValue(a).localeCompare(getSortValue(b)) || getDisplayOrderNumber(a).localeCompare(getDisplayOrderNumber(b))
+    return getSortValue(b).localeCompare(getSortValue(a)) || getDisplayOrderNumber(b).localeCompare(getDisplayOrderNumber(a))
+  })
 }
 
 function getPackageCount(order = {}) {
@@ -270,6 +311,7 @@ function mapDeliveryFromRow(row = {}) {
     id: row.order_no || row.id || '',
     customer: row.customer_name || '',
     phone: row.phone || '',
+    createdAt: row.created_at || '',
     address: row.address || '',
     driver: getDriverName(row.driver),
     deliveryDate: normalizeLocalDateString(row.delivery_date) || '',
@@ -888,38 +930,24 @@ function App() {
     }
   }
 
-  const sortedSearchOrders = useMemo(() => {
-    const normalized = query.trim().toLowerCase()
-    return orders
-      .filter((order) => {
-        if (!normalized) return true
-        return [order.customer, order.phone, order.address, getDriverName(order.driver), ...getOrderSearchValues(order)].some((value) =>
-          String(value || '').toLowerCase().includes(normalized),
-        )
-      })
-      .sort((a, b) => {
-        const prioritySort = comparePriority(a, b)
-        if (prioritySort) return prioritySort
-        if (sort === 'Customer A-Z') return a.customer.localeCompare(b.customer)
-        if (sort === 'Customer Z-A') return b.customer.localeCompare(a.customer)
-        if (sort === 'Oldest First') return getDeliveryDate(a).localeCompare(getDeliveryDate(b)) || a.id.localeCompare(b.id)
-        return getDeliveryDate(b).localeCompare(getDeliveryDate(a)) || b.id.localeCompare(a.id)
-      })
-  }, [orders, query, sort])
-
   const isDriverSession = session?.role === 'driver'
-  const officeDateOrders = useMemo(() => {
-    return sortedSearchOrders.filter((order) => matchesDateFilter(order, dateFilter))
-  }, [dateFilter, sortedSearchOrders])
+  const dashboardBaseOrders = useMemo(() => {
+    const searchedOrders = orders.filter((order) => orderMatchesSearch(order, query))
 
-  const driverOrders = useMemo(() => {
-    if (!isDriverSession) return []
-    const driverName = getDriverName(session.driver)
-    return sortedSearchOrders.filter((order) => order.status === 'Out for Delivery' && getDriverName(order.driver) === driverName)
-  }, [isDriverSession, session, sortedSearchOrders])
+    if (isDriverSession) {
+      const driverName = getDriverName(session.driver)
+      return searchedOrders.filter((order) => order.status === 'Out for Delivery' && getDriverName(order.driver) === driverName)
+    }
 
-  const dashboardBaseOrders = isDriverSession ? driverOrders : officeDateOrders
-  const dashboardOrders = dashboardBaseOrders.filter((order) => status === 'All' || order.status === status)
+    return searchedOrders.filter((order) => matchesDateFilter(order, dateFilter))
+  }, [dateFilter, isDriverSession, orders, query, session])
+
+  const dashboardStatusOrders = useMemo(() => {
+    return dashboardBaseOrders.filter((order) => status === 'All' || order.status === status)
+  }, [dashboardBaseOrders, status])
+
+  const dashboardOrders = useMemo(() => sortOrders(dashboardStatusOrders, sort), [dashboardStatusOrders, sort])
+
   const dashboardCounts = useMemo(() => {
     return statusOptions.reduce((acc, option) => {
       acc[option] = option === 'All' ? dashboardBaseOrders.length : dashboardBaseOrders.filter((order) => order.status === option).length
