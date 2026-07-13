@@ -931,29 +931,23 @@ function App() {
   }
 
   const isDriverSession = session?.role === 'driver'
-  const dashboardBaseOrders = useMemo(() => {
+  const filteredOrders = useMemo(() => {
     const searchedOrders = orders.filter((order) => orderMatchesSearch(order, query))
+    const scopedOrders = isDriverSession
+      ? searchedOrders.filter((order) => order.status === 'Out for Delivery' && getDriverName(order.driver) === getDriverName(session.driver))
+      : searchedOrders.filter((order) => matchesDateFilter(order, dateFilter))
 
-    if (isDriverSession) {
-      const driverName = getDriverName(session.driver)
-      return searchedOrders.filter((order) => order.status === 'Out for Delivery' && getDriverName(order.driver) === driverName)
-    }
+    return scopedOrders.filter((order) => status === 'All' || order.status === status)
+  }, [dateFilter, isDriverSession, orders, query, session, status])
 
-    return searchedOrders.filter((order) => matchesDateFilter(order, dateFilter))
-  }, [dateFilter, isDriverSession, orders, query, session])
-
-  const dashboardStatusOrders = useMemo(() => {
-    return dashboardBaseOrders.filter((order) => status === 'All' || order.status === status)
-  }, [dashboardBaseOrders, status])
-
-  const dashboardOrders = useMemo(() => sortOrders(dashboardStatusOrders, sort), [dashboardStatusOrders, sort])
+  const dashboardOrders = useMemo(() => sortOrders(filteredOrders, sort), [filteredOrders, sort])
 
   const dashboardCounts = useMemo(() => {
     return statusOptions.reduce((acc, option) => {
-      acc[option] = option === 'All' ? dashboardBaseOrders.length : dashboardBaseOrders.filter((order) => order.status === option).length
+      acc[option] = option === 'All' ? dashboardOrders.length : dashboardOrders.filter((order) => order.status === option).length
       return acc
     }, {})
-  }, [dashboardBaseOrders])
+  }, [dashboardOrders])
   const handleLogout = () => {
     setSession(null)
     setSelectedOrder(null)
