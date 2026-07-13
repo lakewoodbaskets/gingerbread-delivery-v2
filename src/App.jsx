@@ -121,6 +121,11 @@ function getDriverName(driverValue) {
   return ''
 }
 
+function isValidDispatchDriver(driverValue) {
+  const driverName = getDriverName(driverValue).trim()
+  return Boolean(driverName) && driverName.toLowerCase() !== 'unassigned'
+}
+
 function getOrderPriority(order = {}) {
   return order?.priority === 'Priority' ? 'Priority' : 'Normal'
 }
@@ -279,7 +284,7 @@ function mapDeliveryToRow(order = {}) {
     customer_name: order.customer || order.customer_name || '',
     phone: order.phone || '',
     address: order.address || '',
-    driver: getDriverName(order.driver),
+    driver: getDriverName(order.driver) || 'Unassigned',
     priority: getOrderPriority(order),
     package_count: getPackageCount(order),
     status: order.status || 'New',
@@ -812,7 +817,7 @@ function App() {
 
       if (error) throw error
       setDrivers((currentDrivers) => currentDrivers.filter((driver) => driver?.dbId !== existingDriver?.dbId && (driver?.name || '') !== driverName))
-      setOrders((currentOrders) => currentOrders.map((order) => getDriverName(order.driver) === driverName ? { ...order, driver: '' } : order))
+      setOrders((currentOrders) => currentOrders.map((order) => getDriverName(order.driver) === driverName ? { ...order, driver: 'Unassigned' } : order))
       showToast('Driver deleted')
     } catch (error) {
       logSupabaseError('Failed to delete driver', error)
@@ -836,8 +841,13 @@ function App() {
     const assignedDriver = getDriverName(driverName).trim()
     const dispatchPriority = priorityOptions.includes(priority) ? priority : ''
 
-    if (!selectedIds.length || !assignedDriver) {
-      showToast('Select orders and a driver', 'error')
+    if (!selectedIds.length) {
+      showToast('No New orders selected', 'error')
+      return false
+    }
+
+    if (!isValidDispatchDriver(assignedDriver)) {
+      showToast('Please assign a driver before dispatching this order.', 'error')
       return false
     }
 
@@ -1333,7 +1343,7 @@ function OrderCard({ order, onClick, drivers = [], canQuickDispatch = false, onD
             <input type="checkbox" checked={dispatchPriority === 'Priority'} onChange={(event) => setDispatchPriority(event.target.checked ? 'Priority' : 'Normal')} />
             Priority Order
           </label>
-          <button className="secondary-action" type="button" disabled={!dispatchDriver} onClick={handleQuickDispatch}>Out for Delivery</button>
+          <button className="secondary-action" type="button" disabled={!isValidDispatchDriver(dispatchDriver)} onClick={handleQuickDispatch}>Out for Delivery</button>
         </div>
       )}
       <div className={'status-strip ' + tone}>{order.status}</div>
@@ -1539,7 +1549,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
     customer: '',
     phone: '',
     address: '',
-    driver: '',
+    driver: 'Unassigned',
     deliveryDate: getTodayDate(),
     priority: 'Normal',
     packageCount: 1,
@@ -1561,7 +1571,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
     event.preventDefault()
     await onAddOrder({
       ...draft,
-      driver: getDriverName(draft.driver),
+      driver: getDriverName(draft.driver) || 'Unassigned',
       deliveryDate: draft.deliveryDate || getTodayDate(),
       priority: getOrderPriority(draft),
       packageCount: 1,
@@ -1738,7 +1748,7 @@ function QuickEntry({ orders = [], onAddOrders, onPrintLabels }) {
         customer: String(row.customer || '').trim(),
         phone: String(row.phone || '').trim(),
         address: String(row.address || '').trim(),
-        driver: '',
+        driver: 'Unassigned',
         status: 'New',
         notes: String(row.notes || '').trim(),
         receiver: '',
@@ -1987,7 +1997,7 @@ function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
           <label className="dispatch-select-all"><input type="checkbox" checked={allVisibleSelected} disabled={!visibleDispatchIds.length} onChange={toggleAll} />Select all New orders</label>
           <label className="select-field"><span>Driver</span><select value={selectedDriver} onChange={(event) => setSelectedDriver(event.target.value)}><option value="">Choose driver</option>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index} value={getDriverName(driver)}>{getDriverName(driver)}</option>)}</select></label>
           <label className="priority-toggle dispatch-priority-toggle"><input type="checkbox" checked={selectedPriority === 'Priority'} onChange={(event) => setSelectedPriority(event.target.checked ? 'Priority' : 'Normal')} />Priority Order</label>
-          <button className="primary-action" type="button" disabled={!selectedIds.length || !selectedDriver} onClick={handleSendOut}>Send Out for Delivery</button>
+          <button className="primary-action" type="button" disabled={!selectedIds.length || !isValidDispatchDriver(selectedDriver)} onClick={handleSendOut}>Send Out for Delivery</button>
         </div>
         <div className="dispatch-list">
           {dateGroups.map((group) => {
