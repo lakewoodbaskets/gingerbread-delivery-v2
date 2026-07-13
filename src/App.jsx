@@ -1756,8 +1756,8 @@ function QuickEntry({ orders = [], onAddOrders, onPrintLabels }) {
       setSaving(true)
       const savedOrders = await onAddOrders(ordersToImport, { stayOnPage: true })
       setSummary({ imported: ordersToImport.length, skipped })
-      setRows(createQuickEntryRows(20))
       if (Array.isArray(savedOrders) && savedOrders.length) setPrintPromptOrders(savedOrders)
+      else setRows(createQuickEntryRows(20))
     } finally {
       setSaving(false)
     }
@@ -1801,15 +1801,25 @@ function QuickEntry({ orders = [], onAddOrders, onPrintLabels }) {
         </div>
       </div>
       {printPromptOrders.length > 0 && (
-        <PrintPrompt
-          title="Print labels for the newly created orders?"
-          printLabel="Print Labels"
-          onPrint={() => {
-            onPrintLabels?.(printPromptOrders)
+        <div className="modal-layer" aria-label="Print labels prompt">
+          <button className="modal-scrim" type="button" aria-label="Close print labels prompt" onClick={() => {
             setPrintPromptOrders([])
-          }}
-          onDismiss={() => setPrintPromptOrders([])}
-        />
+            setRows(createQuickEntryRows(20))
+          }} />
+          <PrintPrompt
+            title="Print labels for the newly created orders?"
+            printLabel="Print Labels"
+            onPrint={() => {
+              onPrintLabels?.(printPromptOrders)
+              setPrintPromptOrders([])
+              setRows(createQuickEntryRows(20))
+            }}
+            onDismiss={() => {
+              setPrintPromptOrders([])
+              setRows(createQuickEntryRows(20))
+            }}
+          />
+        </div>
       )}
     </section>
   )
