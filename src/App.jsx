@@ -645,11 +645,13 @@ function App() {
         .single()
 
       if (error) throw error
-      setOrders((currentOrders) => [mapDeliveryFromRow(data), ...currentOrders])
+      const savedOrder = mapDeliveryFromRow(data)
+      setOrders((currentOrders) => [savedOrder, ...currentOrders])
       setStatus('All')
       setSelectedOrder(null)
       setActiveView('orders')
       showToast('Order added')
+      return savedOrder
     } catch (error) {
       logSupabaseError('Failed to add order', error)
       showToast('Save failed', 'error')
@@ -666,10 +668,12 @@ function App() {
         .select('*')
 
       if (error) throw error
-      setOrders((currentOrders) => [...(data || []).map(mapDeliveryFromRow), ...currentOrders])
+      const savedOrders = (data || []).map(mapDeliveryFromRow)
+      setOrders((currentOrders) => [...savedOrders, ...currentOrders])
       setStatus('All')
       if (!options.stayOnPage) setActiveView('orders')
       showToast('Order added')
+      return savedOrders
     } catch (error) {
       logSupabaseError('Failed to import orders', error)
       showToast('Save failed', 'error')
@@ -944,8 +948,8 @@ function App() {
             onDispatchOrders={handleDispatchOrders}
           />
         )}
-        {!isDriverSession && activeView === 'add' && <AddOrder drivers={safeDrivers} onAddOrder={handleAddOrder} nextOrderNumber={getNextOrderNumber(orders)} />}
-        {!isDriverSession && activeView === 'quick' && <QuickEntry orders={orders} onAddOrders={handleAddOrders} />}
+        {!isDriverSession && activeView === 'add' && <AddOrder drivers={safeDrivers} onAddOrder={handleAddOrder} onPrintLabels={handlePrintSlips} nextOrderNumber={getNextOrderNumber(orders)} />}
+        {!isDriverSession && activeView === 'quick' && <QuickEntry orders={orders} onAddOrders={handleAddOrders} onPrintLabels={handlePrintSlips} />}
         {!isDriverSession && activeView === 'dispatch' && <Dispatch orders={orders} drivers={safeDrivers} onDispatchOrders={handleDispatchOrders} />}
         {!isDriverSession && activeView === 'drivers' && (
           <Drivers
@@ -1500,7 +1504,19 @@ function Detail({ label, value }) {
   )
 }
 
-function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
+function PrintPrompt({ title, printLabel, onPrint, onDismiss }) {
+  return (
+    <div className="print-prompt" role="status" aria-live="polite">
+      <strong>{title}</strong>
+      <div>
+        <button className="primary-action" type="button" onClick={onPrint}>{printLabel}</button>
+        <button className="secondary-action" type="button" onClick={onDismiss}>Not Now</button>
+      </div>
+    </div>
+  )
+}
+
+function AddOrder({ drivers = [], onAddOrder, onPrintLabels, nextOrderNumber }) {
   const availableDrivers = Array.isArray(drivers) ? drivers.filter(Boolean) : []
   const emptyOrder = {
     id: nextOrderNumber,
@@ -1518,6 +1534,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
     proofPhoto: '',
   }
   const [draft, setDraft] = useState(emptyOrder)
+  const [printPromptOrder, setPrintPromptOrder] = useState(null)
   const showReceiver = draft.status === 'Delivered'
   const showFailureReason = draft.status === 'Failed'
 
@@ -1527,7 +1544,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
 
   async function handleSubmit(event) {
     event.preventDefault()
-    await onAddOrder({
+    const savedOrder = await onAddOrder({
       ...draft,
       driver: getDriverName(draft.driver),
       deliveryDate: draft.deliveryDate || getTodayDate(),
@@ -1539,6 +1556,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
       proofPhoto: showReceiver ? draft.proofPhoto : '',
     })
     setDraft(emptyOrder)
+    if (savedOrder) setPrintPromptOrder(savedOrder)
   }
 
   return (
@@ -1562,6 +1580,17 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
           <button className="primary-action" type="submit">Save Order</button>
         </div>
       </form>
+      {printPromptOrder && (
+        <PrintPrompt
+          title="Print label now?"
+          printLabel="Print Label"
+          onPrint={() => {
+            onPrintLabels?.(printPromptOrder)
+            setPrintPromptOrder(null)
+          }}
+          onDismiss={() => setPrintPromptOrder(null)}
+        />
+      )}
     </section>
   )
 }
@@ -1574,7 +1603,7 @@ function isQuickRowEmpty(row) {
   return !['orderNo', 'customer', 'phone', 'address', 'notes'].some((field) => String(row?.[field] || '').trim())
 }
 
-function QuickEntry({ orders = [], onAddOrders }) {
+function QuickEntry({ orders = [], onAddOrders, onPrintLabels }) {
   const columns = [
     { key: 'deliveryDate', label: 'Delivery Date' },
     { key: 'orderNo', label: 'Order #' },
@@ -1588,6 +1617,7 @@ function QuickEntry({ orders = [], onAddOrders }) {
   const [summary, setSummary] = useState({ imported: 0, skipped: 0 })
   const [fileMessage, setFileMessage] = useState('')
   const [saving, setSaving] = useState(false)
+  const [printPromptOrders, setPrintPromptOrders] = useState([])
   const existingOrderNumbers = useMemo(() => new Set((Array.isArray(orders) ? orders : []).map((order) => String(order?.id || '').trim().toLowerCase()).filter(Boolean)), [orders])
   const duplicateOrderNumbers = useMemo(() => {
     const seen = new Set()
@@ -1721,9 +1751,10 @@ function QuickEntry({ orders = [], onAddOrders }) {
 
     try {
       setSaving(true)
-      await onAddOrders(ordersToImport, { stayOnPage: true })
+      const savedOrders = await onAddOrders(ordersToImport, { stayOnPage: true })
       setSummary({ imported: ordersToImport.length, skipped })
       setRows(createQuickEntryRows(20))
+      if (Array.isArray(savedOrders) && savedOrders.length) setPrintPromptOrders(savedOrders)
     } finally {
       setSaving(false)
     }
@@ -1766,6 +1797,17 @@ function QuickEntry({ orders = [], onAddOrders }) {
           </div>
         </div>
       </div>
+      {printPromptOrders.length > 0 && (
+        <PrintPrompt
+          title="Print labels for the newly created orders?"
+          printLabel="Print Labels"
+          onPrint={() => {
+            onPrintLabels?.(printPromptOrders)
+            setPrintPromptOrders([])
+          }}
+          onDismiss={() => setPrintPromptOrders([])}
+        />
+      )}
     </section>
   )
 }
