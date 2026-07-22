@@ -98,6 +98,9 @@ const statusOptions = ['All', 'New', 'Out for Delivery', 'Delivered', 'Failed']
 const editableStatusOptions = statusOptions.filter((option) => option !== 'All')
 const sortOptions = ['Newest First', 'Oldest First', 'Customer A-Z', 'Customer Z-A']
 const dateFilterOptions = ['Today', 'Tomorrow', 'Future', 'All']
+const historyDateFilterOptions = ['Today', 'Yesterday', 'Last 7 Days', 'This Month', 'All']
+const historyStatusOptions = ['All', 'Delivered', 'Failed']
+const historySortOptions = ['Newest First', 'Oldest First']
 const priorityOptions = ['Normal', 'Priority']
 
 const defaultSettings = {
@@ -260,6 +263,45 @@ function matchesDateFilter(order, filter) {
   if (filter === 'Tomorrow') return deliveryDate === tomorrow
   if (filter === 'Future') return deliveryDate > tomorrow
   return true
+}
+
+function getCompletedHistoryDate(order = {}) {
+  const completedValue = order?.completedAt || order?.completed_at
+  if (completedValue) {
+    const completedDate = new Date(completedValue)
+    if (!Number.isNaN(completedDate.getTime())) {
+      const { year, month, day } = getLocalDateParts(completedDate)
+      return formatDateParts(year, month, day)
+    }
+
+    const normalizedCompletedDate = normalizeLocalDateString(completedValue)
+    if (normalizedCompletedDate) return normalizedCompletedDate
+  }
+
+  return getDeliveryDate(order)
+}
+
+function matchesHistoryDateFilter(order, filter) {
+  const historyDate = getCompletedHistoryDate(order)
+  const today = getTodayDate()
+  if (filter === 'Today') return historyDate === today
+  if (filter === 'Yesterday') return historyDate === getOffsetDate(-1)
+  if (filter === 'Last 7 Days') return historyDate >= getOffsetDate(-6) && historyDate <= today
+  if (filter === 'This Month') return historyDate.slice(0, 7) === today.slice(0, 7)
+  return true
+}
+
+function getHistorySortValue(order = {}) {
+  return String(order?.completedAt || order?.completed_at || getCompletedHistoryDate(order) || '')
+}
+
+function sortHistoryOrders(ordersToSort = [], sortMode = 'Newest First') {
+  return [...ordersToSort].sort((a, b) => {
+    const direction = sortMode === 'Oldest First' ? 1 : -1
+    const dateCompare = getHistorySortValue(a).localeCompare(getHistorySortValue(b))
+    if (dateCompare) return dateCompare * direction
+    return getDisplayOrderNumber(a).localeCompare(getDisplayOrderNumber(b)) * direction
+  })
 }
 
 function getDateGroupKey(order) {
@@ -2142,12 +2184,72 @@ function Drivers({ drivers = [], onAddDriver, onUpdateDriver, onDeleteDriver, on
 }
 
 function History({ orders, setSelectedOrder }) {
-  const historyOrders = orders.filter((order) => ['Delivered', 'Failed'].includes(order.status))
+  const [query, setQuery] = useState('')
+  const [dateFilter, setDateFilter] = useState('All')
+  const [driverFilter, setDriverFilter] = useState('All Drivers')
+  const [statusFilter, setStatusFilter] = useState('All')
+  const [sort, setSort] = useState('Newest First')
+
+  const historyOrders = useMemo(() => {
+    return (Array.isArray(orders) ? orders : []).filter((order) => ['Delivered', 'Failed'].includes(order.status))
+  }, [orders])
+
+  const historyDrivers = useMemo(() => {
+    const driverNames = historyOrders
+      .map((order) => getDriverName(order.driver).trim())
+      .filter(Boolean)
+    return ['All Drivers', ...Array.from(new Set(driverNames)).sort((a, b) => a.localeCompare(b))]
+  }, [historyOrders])
+
+  const filteredHistory = useMemo(() => {
+    let filteredHistory = [...historyOrders]
+    filteredHistory = filteredHistory.filter((order) => orderMatchesSearch(order, query))
+    filteredHistory = filteredHistory.filter((order) => statusFilter === 'All' || order.status === statusFilter)
+    filteredHistory = filteredHistory.filter((order) => matchesHistoryDateFilter(order, dateFilter))
+    filteredHistory = filteredHistory.filter((order) => driverFilter === 'All Drivers' || getDriverName(order.driver) === driverFilter)
+    filteredHistory = sortHistoryOrders(filteredHistory, sort)
+    return filteredHistory
+  }, [dateFilter, driverFilter, historyOrders, query, sort, statusFilter])
+
   return (
     <section className="single-view">
       <PageHeader eyebrow="Archive" title="History" subtitle="Completed and failed deliveries" />
+      <div className="toolbar">
+        <label className="search-field">
+          <span>Search</span>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search history"
+          />
+        </label>
+        <label className="select-field">
+          <span>Date</span>
+          <select value={dateFilter} onChange={(event) => setDateFilter(event.target.value)}>
+            {historyDateFilterOptions.map((option) => <option key={option}>{option}</option>)}
+          </select>
+        </label>
+        <label className="select-field">
+          <span>Driver</span>
+          <select value={driverFilter} onChange={(event) => setDriverFilter(event.target.value)}>
+            {historyDrivers.map((driver) => <option key={driver}>{driver}</option>)}
+          </select>
+        </label>
+        <label className="select-field">
+          <span>Status</span>
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            {historyStatusOptions.map((option) => <option key={option}>{option}</option>)}
+          </select>
+        </label>
+        <label className="select-field">
+          <span>Sort</span>
+          <select value={sort} onChange={(event) => setSort(event.target.value)}>
+            {historySortOptions.map((option) => <option key={option}>{option}</option>)}
+          </select>
+        </label>
+      </div>
       <div className="order-grid compact">
-        {historyOrders.map((order) => <OrderCard key={order.id} order={order} onClick={() => setSelectedOrder(order)} />)}
+        {filteredHistory.map((order) => <OrderCard key={order.dbId || order.id} order={order} onClick={() => setSelectedOrder(order)} />)}
       </div>
     </section>
   )
