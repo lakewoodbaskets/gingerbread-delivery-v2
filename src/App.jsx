@@ -1051,7 +1051,8 @@ function buildLabelPrintDocument(orders) {
     const packageCount = getPackageCount(order)
     return Array.from({ length: packageCount }, (_, index) => [
       '<section class="zebra-label">',
-      '<div class="label-header"><div class="label-order-block"><span class="label-kicker">ORDER #</span><strong class="label-order-number">' + escapeHtml(getDisplayOrderNumber(order)) + '</strong></div><span class="label-date">' + escapeHtml(formatLabelDeliveryDate(order)) + '</span></div>',
+      '<div class="label-top"><span class="label-kicker">ORDER #</span><span class="label-date">' + escapeHtml(formatLabelDeliveryDate(order)) + '</span></div>',
+      '<strong class="label-order-number">' + escapeHtml(getDisplayOrderNumber(order)) + '</strong>',
       '<span class="label-customer">' + escapeHtml(order?.customer || '') + '</span>',
       '<p class="label-address">' + escapeHtml(order?.address || '') + '</p>',
       '<span class="label-phone">' + escapeHtml(order?.phone || '') + '</span>',
@@ -1070,18 +1071,17 @@ function buildLabelPrintDocument(orders) {
     'html, body { width: 2.25in; min-width: 0; margin: 0; padding: 0; overflow: visible; background: #ffffff; }' +
     'body { color: #000000; font-family: Arial, Helvetica, sans-serif; }' +
     '.print-note { box-sizing: border-box; width: 2.25in; margin: 0 0 0.12in; padding: 0.06in; color: #000000; font-size: 10px; line-height: 1.25; }' +
-    '.zebra-label { display: flex; box-sizing: border-box; width: 2.25in; height: 1.25in; margin: 0; flex-direction: column; justify-content: center; overflow: hidden; page-break-after: always; break-after: page; page-break-inside: avoid; break-inside: avoid; padding: 0.07in 0.08in; background: #ffffff; color: #000000; }' +
-    '.label-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.05in; color: #000000; line-height: 1; }' +
-    '.label-order-block { display: grid; gap: 0.002in; min-width: 0; }' +
+    '.zebra-label { position: relative; display: flex; box-sizing: border-box; width: 2.25in; height: 1.25in; margin: 0; flex-direction: column; justify-content: center; overflow: hidden; page-break-after: always; break-after: page; page-break-inside: avoid; break-inside: avoid; padding: 0.075in 0.085in 0.065in; background: #ffffff; color: #000000; }' +
+    '.label-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 0.05in; color: #000000; line-height: 1; }' +
     '.label-kicker, .label-date, .label-order-number, .label-customer, .label-address, .label-phone, .label-package { display: block; color: #000000; letter-spacing: 0; overflow: visible; text-overflow: clip; }' +
     '.label-kicker { font-size: 0.085in; font-weight: 900; line-height: 1; white-space: nowrap; }' +
-    '.label-date { align-self: end; flex: 0 0 auto; max-width: 0.72in; padding-bottom: 0.004in; text-align: right; font-size: 0.17in; font-weight: 900; line-height: 0.9; white-space: nowrap; }' +
-    '.label-order-number { overflow: visible; font-size: 0.19in; font-weight: 900; line-height: 0.9; white-space: nowrap; }' +
+    '.label-date { position: absolute; top: 0.16in; right: 0.085in; max-width: 0.82in; text-align: right; font-size: 0.17in; font-weight: 900; line-height: 0.9; white-space: nowrap; }' +
+    '.label-order-number { margin-top: 0.004in; padding-right: 0.86in; font-size: 0.215in; font-weight: 900; line-height: 0.88; white-space: nowrap; }' +
     '.label-customer, .label-address { overflow: visible; font-size: 0.205in; font-weight: 900; line-height: 0.92; white-space: normal; overflow-wrap: break-word; word-break: normal; }' +
     '.label-customer { margin-top: 0.026in; }' +
-    '.label-address { margin: 0.018in 0 0; }' +
-    '.label-phone { margin-top: 0.012in; font-size: 0.145in; font-weight: 850; line-height: 0.95; white-space: nowrap; }' +
-    '.label-package { margin-top: 0.012in; font-size: 0.095in; font-weight: 900; line-height: 1; white-space: nowrap; }' +
+    '.label-address { margin: 0.016in 0 0; }' +
+    '.label-phone { margin-top: 0.01in; font-size: 0.145in; font-weight: 850; line-height: 0.95; white-space: nowrap; }' +
+    '.label-package { position: absolute; right: 0.085in; bottom: 0.035in; font-size: 0.083in; font-weight: 900; line-height: 1; white-space: nowrap; }' +
     '.zebra-label:last-child { page-break-after: auto; break-after: auto; }' +
     '@media print { .print-note { display: none; } html, body { width: 2.25in !important; margin: 0 !important; padding: 0 !important; } .zebra-label { box-sizing: border-box !important; width: 2.25in !important; height: 1.25in !important; margin: 0 !important; overflow: hidden !important; } }' +
     '</style>' +
@@ -1097,13 +1097,17 @@ function buildLabelPrintDocument(orders) {
     'var order=label.querySelector(".label-order-number");' +
     'var phone=label.querySelector(".label-phone");' +
     'if(!customer||!address||!order)return;' +
+    'var pkg=label.querySelector(".label-package");' +
     'var bodySize=19.7;' +
-    'var orderSize=18.2;' +
+    'var orderSize=20.6;' +
     'var phoneSize=13.9;' +
-    'function apply(){customer.style.fontSize=bodySize+"px";address.style.fontSize=bodySize+"px";order.style.fontSize=orderSize+"px";if(phone)phone.style.fontSize=phoneSize+"px";}' +
+    'var date=label.querySelector(".label-date");' +
+    'var dateSize=16.3;' +
+    'var packageSize=8;' +
+    'function apply(){customer.style.fontSize=bodySize+"px";address.style.fontSize=bodySize+"px";order.style.fontSize=orderSize+"px";if(phone)phone.style.fontSize=phoneSize+"px";if(date)date.style.fontSize=dateSize+"px";if(pkg)pkg.style.fontSize=packageSize+"px";}' +
     'apply();' +
-    'while(phone&&(label.scrollHeight>label.clientHeight||label.scrollWidth>label.clientWidth)&&phoneSize>9){phoneSize-=0.5;apply();}' +
-    'while((label.scrollHeight>label.clientHeight||label.scrollWidth>label.clientWidth)&&bodySize>8){bodySize-=0.5;if(orderSize>13)orderSize-=0.25;apply();}' +
+    'while(phone&&(label.scrollHeight>label.clientHeight||label.scrollWidth>label.clientWidth)&&phoneSize>9){phoneSize-=0.5;if(pkg&&packageSize>6)packageSize-=0.25;apply();}' +
+    'while((label.scrollHeight>label.clientHeight||label.scrollWidth>label.clientWidth)&&bodySize>9){bodySize-=0.5;if(orderSize>15)orderSize-=0.25;if(dateSize>13)dateSize-=0.2;apply();}' +
     'while(order.scrollWidth>label.clientWidth&&orderSize>10){orderSize-=0.5;apply();}' +
     '}' +
     'function fitAll(){document.querySelectorAll(".zebra-label").forEach(fitLabel);}' +
