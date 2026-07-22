@@ -932,18 +932,20 @@ function App() {
 
   const isDriverSession = session?.role === 'driver'
   const filteredOrders = useMemo(() => {
-    const searchedOrders = orders.filter((order) => orderMatchesSearch(order, query))
-    const statusOrders = searchedOrders.filter((order) => status === 'All' || order.status === status)
-    const dateOrders = isDriverSession
-      ? statusOrders.filter((order) => order.status === 'Out for Delivery' && getDriverName(order.driver) === getDriverName(session.driver))
-      : statusOrders.filter((order) => matchesDateFilter(order, dateFilter))
-    const sortedOrders = sortOrders(dateOrders, sort)
+    let filteredOrders = Array.isArray(orders) ? [...orders] : []
+
+    filteredOrders = filteredOrders.filter((order) => orderMatchesSearch(order, query))
+    filteredOrders = filteredOrders.filter((order) => status === 'All' || order.status === status)
+    filteredOrders = isDriverSession
+      ? filteredOrders.filter((order) => order.status === 'Out for Delivery' && getDriverName(order.driver) === getDriverName(session.driver))
+      : filteredOrders.filter((order) => matchesDateFilter(order, dateFilter))
+    filteredOrders = sortOrders(filteredOrders, sort)
 
     console.log('Dashboard search term:', query)
-    console.log('Dashboard filtered order numbers:', sortedOrders.map((order) => getDisplayOrderNumber(order)))
-    console.log('Dashboard filtered customer names:', sortedOrders.map((order) => order.customer || order.customer_name || ''))
+    console.log('Dashboard filtered order numbers:', filteredOrders.map((order) => getDisplayOrderNumber(order)))
+    console.log('Dashboard filtered customer names:', filteredOrders.map((order) => order.customer || order.customer_name || ''))
 
-    return sortedOrders
+    return filteredOrders
   }, [dateFilter, isDriverSession, orders, query, session, sort, status])
 
   const dashboardCounts = useMemo(() => {
@@ -1282,7 +1284,7 @@ function PageHeader({ eyebrow, title, subtitle }) {
   )
 }
 
-function OrdersDashboard({ query, setQuery, status, setStatus, sort, setSort, dateFilter, setDateFilter, showDateFilter = true, counts, filteredOrders, setSelectedOrder, drivers = [], isOffice = false, onDispatchOrders }) {
+function OrdersDashboard({ query, setQuery, status, setStatus, sort, setSort, dateFilter, setDateFilter, showDateFilter = true, counts, filteredOrders = [], setSelectedOrder, drivers = [], isOffice = false, onDispatchOrders }) {
   return (
     <section className="dashboard-view">
       <PageHeader eyebrow="Dispatch dashboard" title="Gingerbread Delivery" subtitle="Delivery management" />
