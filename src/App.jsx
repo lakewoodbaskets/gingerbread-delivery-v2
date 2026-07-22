@@ -432,6 +432,44 @@ function mapSettingsToRow(settings) {
   }
 }
 
+function recordsMatchById(currentRecord = {}, nextRecord = {}) {
+  const currentDbId = currentRecord?.dbId || currentRecord?.id
+  const nextDbId = nextRecord?.dbId || nextRecord?.id
+  if (currentDbId && nextDbId && currentDbId === nextDbId) return true
+  const currentOrderNo = getDisplayOrderNumber(currentRecord)
+  const nextOrderNo = getDisplayOrderNumber(nextRecord)
+  return Boolean(currentOrderNo && nextOrderNo && currentOrderNo === nextOrderNo)
+}
+
+function upsertRecord(records = [], nextRecord = {}) {
+  const safeRecords = Array.isArray(records) ? records : []
+  const existingIndex = safeRecords.findIndex((record) => recordsMatchById(record, nextRecord))
+  if (existingIndex === -1) return [nextRecord, ...safeRecords]
+  return safeRecords.map((record, index) => index === existingIndex ? nextRecord : record)
+}
+
+function removeRecord(records = [], removedRecord = {}) {
+  const safeRecords = Array.isArray(records) ? records : []
+  return safeRecords.filter((record) => !recordsMatchById(record, removedRecord))
+}
+
+function driversMatch(currentDriver = {}, nextDriver = {}) {
+  if (currentDriver?.dbId && nextDriver?.dbId && currentDriver.dbId === nextDriver.dbId) return true
+  return Boolean(currentDriver?.name && nextDriver?.name && currentDriver.name === nextDriver.name)
+}
+
+function upsertDriverRecord(drivers = [], nextDriver = {}) {
+  const safeDrivers = Array.isArray(drivers) ? drivers : []
+  const existingIndex = safeDrivers.findIndex((driver) => driversMatch(driver, nextDriver))
+  if (existingIndex === -1) return [...safeDrivers, nextDriver].sort((a, b) => getDriverName(a).localeCompare(getDriverName(b)))
+  return safeDrivers.map((driver, index) => index === existingIndex ? nextDriver : driver).sort((a, b) => getDriverName(a).localeCompare(getDriverName(b)))
+}
+
+function removeDriverRecord(drivers = [], removedDriver = {}) {
+  const safeDrivers = Array.isArray(drivers) ? drivers : []
+  return safeDrivers.filter((driver) => !driversMatch(driver, removedDriver))
+}
+
 async function loadSettings() {
   if (!supabase) throw new Error('Missing Supabase environment variables')
   const { data, error } = await supabase
@@ -582,6 +620,7 @@ function App() {
   const [session, setSession] = useState(null)
   const [settings, setSettings] = useState(defaultSettings)
   const [toast, setToast] = useState(null)
+  const [realtimeStatus, setRealtimeStatus] = useState('connected')
   const [backupInfo, setBackupInfo] = useState(() => {
     try {
       return JSON.parse(window.localStorage.getItem('gingerbreadBackupInfo') || '{}')
@@ -590,6 +629,7 @@ function App() {
     }
   })
   const toastTimeoutRef = useRef(null)
+  const realtimeChannelStatusesRef = useRef({})
 
   function showToast(message, type = 'success') {
     if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current)
@@ -664,6 +704,70 @@ function App() {
 
     loadData()
   }, [])
+
+  useEffect(() => {
+    if (!supabase || !session) return undefined
+
+    let isActive = true
+    realtimeChannelStatusesRef.current = {}
+    const handleChannelStatus = (channelName, status) => {
+      if (!isActive) return
+      realtimeChannelStatusesRef.current = { ...realtimeChannelStatusesRef.current, [channelName]: status }
+      const statuses = Object.values(realtimeChannelStatusesRef.current)
+      setRealtimeStatus(statuses.some((channelStatus) => ['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(channelStatus)) ? 'reconnecting' : 'connected')
+    }
+
+    const deliveriesChannel = supabase
+      .channel('gingerbread-deliveries-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'deliveries' }, (payload) => {
+        if (payload.eventType === 'DELETE') {
+          const removedOrder = mapDeliveryFromRow(payload.old || {})
+          setOrders((currentOrders) => removeRecord(currentOrders, removedOrder))
+          setSelectedOrder((currentOrder) => currentOrder && recordsMatchById(currentOrder, removedOrder) ? null : currentOrder)
+          return
+        }
+
+        const nextOrder = mapDeliveryFromRow(payload.new || {})
+        setOrders((currentOrders) => upsertRecord(currentOrders, nextOrder))
+        setSelectedOrder((currentOrder) => currentOrder && recordsMatchById(currentOrder, nextOrder) ? nextOrder : currentOrder)
+      })
+      .subscribe((status) => handleChannelStatus('deliveries', status))
+
+    const driversChannel = supabase
+      .channel('gingerbread-drivers-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, (payload) => {
+        if (payload.eventType === 'DELETE') {
+          const removedDriver = mapDriverFromRow(payload.old || {})
+          setDrivers((currentDrivers) => removeDriverRecord(currentDrivers, removedDriver))
+          return
+        }
+
+        const nextDriver = mapDriverFromRow(payload.new || {})
+        setDrivers((currentDrivers) => upsertDriverRecord(currentDrivers, nextDriver))
+      })
+      .subscribe((status) => handleChannelStatus('drivers', status))
+
+    const settingsChannel = supabase
+      .channel('gingerbread-settings-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, (payload) => {
+        if (payload.eventType === 'DELETE') {
+          setSettings(defaultSettings)
+          return
+        }
+
+        setSettings(mapSettingsFromRow(payload.new || { id: 1 }))
+      })
+      .subscribe((status) => handleChannelStatus('settings', status))
+
+    return () => {
+      isActive = false
+      realtimeChannelStatusesRef.current = {}
+      setRealtimeStatus('connected')
+      supabase.removeChannel(deliveriesChannel)
+      supabase.removeChannel(driversChannel)
+      supabase.removeChannel(settingsChannel)
+    }
+  }, [session])
 
 
   async function handleSaveSettings(nextSettings) {
@@ -1084,6 +1188,7 @@ function App() {
         </div>
       )}
       {toast && <Toast message={toast.message} type={toast.type} />}
+      {realtimeStatus === 'reconnecting' && <div className="realtime-status" role="status">Reconnecting...</div>}
       {!isDriverSession && <MobileNav activeView={activeView} setActiveView={setActiveView} />}
     </div>
   )

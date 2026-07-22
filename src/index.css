@@ -1213,6 +1213,21 @@ textarea:focus {
   background: #aa3f37;
 }
 
+.realtime-status {
+  position: fixed;
+  right: 22px;
+  top: 18px;
+  z-index: 90;
+  border: 1px solid #e5ddd3;
+  border-radius: 8px;
+  background: #fff8ee;
+  color: #7a4426;
+  padding: 10px 14px;
+  box-shadow: 0 14px 32px rgba(31, 24, 18, 0.12);
+  font-size: 0.88rem;
+  font-weight: 900;
+}
+
 @keyframes toast-in {
   from {
     transform: translateY(8px);
