@@ -931,29 +931,30 @@ function App() {
   }
 
   const isDriverSession = session?.role === 'driver'
-  const filteredOrders = useMemo(() => {
-    let filteredOrders = Array.isArray(orders) ? [...orders] : []
+  const displayedOrders = useMemo(() => {
+    let displayedOrders = Array.isArray(orders) ? [...orders] : []
 
-    filteredOrders = filteredOrders.filter((order) => orderMatchesSearch(order, query))
-    filteredOrders = filteredOrders.filter((order) => status === 'All' || order.status === status)
-    filteredOrders = isDriverSession
-      ? filteredOrders.filter((order) => order.status === 'Out for Delivery' && getDriverName(order.driver) === getDriverName(session.driver))
-      : filteredOrders.filter((order) => matchesDateFilter(order, dateFilter))
-    filteredOrders = sortOrders(filteredOrders, sort)
+    displayedOrders = displayedOrders.filter((order) => orderMatchesSearch(order, query))
+    displayedOrders = displayedOrders.filter((order) => status === 'All' || order.status === status)
+    displayedOrders = isDriverSession
+      ? displayedOrders.filter((order) => order.status === 'Out for Delivery' && getDriverName(order.driver) === getDriverName(session.driver))
+      : displayedOrders.filter((order) => matchesDateFilter(order, dateFilter))
+    displayedOrders = sortOrders(displayedOrders, sort)
 
-    console.log('Dashboard search term:', query)
-    console.log('Dashboard filtered order numbers:', filteredOrders.map((order) => getDisplayOrderNumber(order)))
-    console.log('Dashboard filtered customer names:', filteredOrders.map((order) => order.customer || order.customer_name || ''))
+    console.log('Dashboard current search term:', query)
+    console.log('Dashboard current status filter:', status)
+    console.log('Dashboard current date filter:', dateFilter)
+    console.log('Dashboard displayed order numbers:', displayedOrders.map((order) => getDisplayOrderNumber(order)))
 
-    return filteredOrders
+    return displayedOrders
   }, [dateFilter, isDriverSession, orders, query, session, sort, status])
 
   const dashboardCounts = useMemo(() => {
     return statusOptions.reduce((acc, option) => {
-      acc[option] = option === 'All' ? filteredOrders.length : filteredOrders.filter((order) => order.status === option).length
+      acc[option] = option === 'All' ? displayedOrders.length : displayedOrders.filter((order) => order.status === option).length
       return acc
     }, {})
-  }, [filteredOrders])
+  }, [displayedOrders])
   const handleLogout = () => {
     setSession(null)
     setSelectedOrder(null)
@@ -989,7 +990,7 @@ function App() {
             setDateFilter={setDateFilter}
             showDateFilter={!isDriverSession}
             counts={dashboardCounts}
-            filteredOrders={filteredOrders}
+            displayedOrders={displayedOrders}
             setSelectedOrder={setSelectedOrder}
             drivers={safeDrivers}
             isOffice={!isDriverSession}
@@ -1284,7 +1285,7 @@ function PageHeader({ eyebrow, title, subtitle }) {
   )
 }
 
-function OrdersDashboard({ query, setQuery, status, setStatus, sort, setSort, dateFilter, setDateFilter, showDateFilter = true, counts, filteredOrders = [], setSelectedOrder, drivers = [], isOffice = false, onDispatchOrders }) {
+function OrdersDashboard({ query, setQuery, status, setStatus, sort, setSort, dateFilter, setDateFilter, showDateFilter = true, counts, displayedOrders = [], setSelectedOrder, drivers = [], isOffice = false, onDispatchOrders }) {
   return (
     <section className="dashboard-view">
       <PageHeader eyebrow="Dispatch dashboard" title="Gingerbread Delivery" subtitle="Delivery management" />
@@ -1332,8 +1333,8 @@ function OrdersDashboard({ query, setQuery, status, setStatus, sort, setSort, da
         ))}
       </div>
       <div className="order-grid">
-        {filteredOrders.map((order) => (
-          <OrderCard key={order.id} order={order} onClick={() => setSelectedOrder(order)} drivers={drivers} canQuickDispatch={isOffice && order.status === 'New'} onDispatchOrders={onDispatchOrders} />
+        {displayedOrders.map((order) => (
+          <OrderCard key={order.dbId || order.id} order={order} onClick={() => setSelectedOrder(order)} drivers={drivers} canQuickDispatch={isOffice && order.status === 'New'} onDispatchOrders={onDispatchOrders} />
         ))}
       </div>
     </section>
