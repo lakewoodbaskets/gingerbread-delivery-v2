@@ -183,12 +183,32 @@ button {
   margin-bottom: 16px;
 }
 
+.single-view .toolbar {
+  grid-template-columns: minmax(220px, 1fr) repeat(auto-fit, minmax(142px, 1fr));
+}
+
 .search-field,
 .select-field,
 .form-card label,
 .paste-card {
   display: grid;
   gap: 9px;
+}
+
+.date-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 8px;
+}
+
+.date-clear-button {
+  width: 44px;
+  height: 44px;
+  border: 1px solid #e5ddd3;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1f1712;
+  font-weight: 900;
 }
 
 input,

@@ -101,6 +101,7 @@ const dateFilterOptions = ['Today', 'Tomorrow', 'Future', 'All']
 const historyDateFilterOptions = ['Today', 'Yesterday', 'Last 7 Days', 'This Month', 'All']
 const historyStatusOptions = ['All', 'Delivered', 'Failed']
 const historySortOptions = ['Newest First', 'Oldest First']
+const historyArchiveFilterOptions = ['Current', 'Archived', 'All']
 const priorityOptions = ['Normal', 'Priority']
 
 const defaultSettings = {
@@ -333,7 +334,7 @@ function formatLabelDeliveryDate(order) {
 }
 
 function getCompletedAt(order) {
-  return order?.status === 'Delivered' ? order?.completedAt || order?.completed_at || new Date().toISOString() : null
+  return ['Delivered', 'Failed'].includes(order?.status) ? order?.completedAt || order?.completed_at || new Date().toISOString() : null
 }
 
 function logSupabaseError(action, error) {
@@ -2293,6 +2294,8 @@ function History({ orders, setSelectedOrder }) {
   const [dateFilter, setDateFilter] = useState('All')
   const [driverFilter, setDriverFilter] = useState('All Drivers')
   const [statusFilter, setStatusFilter] = useState('All')
+  const [archiveFilter, setArchiveFilter] = useState('Current')
+  const [exactDateFilter, setExactDateFilter] = useState('')
   const [sort, setSort] = useState('Newest First')
 
   const historyOrders = useMemo(() => {
@@ -2310,11 +2313,16 @@ function History({ orders, setSelectedOrder }) {
     let filteredHistory = [...historyOrders]
     filteredHistory = filteredHistory.filter((order) => orderMatchesSearch(order, query))
     filteredHistory = filteredHistory.filter((order) => statusFilter === 'All' || order.status === statusFilter)
-    filteredHistory = filteredHistory.filter((order) => matchesHistoryDateFilter(order, dateFilter))
+    filteredHistory = filteredHistory.filter((order) => exactDateFilter ? getCompletedHistoryDate(order) === exactDateFilter : matchesHistoryDateFilter(order, dateFilter))
     filteredHistory = filteredHistory.filter((order) => driverFilter === 'All Drivers' || getDriverName(order.driver) === driverFilter)
+    filteredHistory = filteredHistory.filter((order) => {
+      if (archiveFilter === 'Archived') return Boolean(order.archivedAt || order.archived_at)
+      if (archiveFilter === 'All') return true
+      return !order.archivedAt && !order.archived_at
+    })
     filteredHistory = sortHistoryOrders(filteredHistory, sort)
     return filteredHistory
-  }, [dateFilter, driverFilter, historyOrders, query, sort, statusFilter])
+  }, [archiveFilter, dateFilter, driverFilter, exactDateFilter, historyOrders, query, sort, statusFilter])
 
   return (
     <section className="single-view">
@@ -2334,6 +2342,13 @@ function History({ orders, setSelectedOrder }) {
             {historyDateFilterOptions.map((option) => <option key={option}>{option}</option>)}
           </select>
         </label>
+        <label className="select-field exact-date-field">
+          <span>Delivery Date</span>
+          <div className="date-input-row">
+            <input type="date" value={exactDateFilter} onChange={(event) => setExactDateFilter(event.target.value)} />
+            {exactDateFilter && <button className="date-clear-button" type="button" aria-label="Clear delivery date filter" onClick={() => setExactDateFilter('')}>X</button>}
+          </div>
+        </label>
         <label className="select-field">
           <span>Driver</span>
           <select value={driverFilter} onChange={(event) => setDriverFilter(event.target.value)}>
@@ -2344,6 +2359,12 @@ function History({ orders, setSelectedOrder }) {
           <span>Status</span>
           <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
             {historyStatusOptions.map((option) => <option key={option}>{option}</option>)}
+          </select>
+        </label>
+        <label className="select-field">
+          <span>Archive</span>
+          <select value={archiveFilter} onChange={(event) => setArchiveFilter(event.target.value)}>
+            {historyArchiveFilterOptions.map((option) => <option key={option}>{option}</option>)}
           </select>
         </label>
         <label className="select-field">
