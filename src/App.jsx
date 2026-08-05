@@ -1683,11 +1683,16 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
             <div className="delivery-proof-field">
               <span>Proof Photo</span>
               {draft.proofPhoto && <img className="proof-thumbnail" src={draft.proofPhoto} alt="Delivery proof" />}
-              <label className="proof-upload-button">
-                <input disabled={(isDriverMode && !canDriverEdit) || isUploadingProof} type="file" accept="image/*" capture="environment" onChange={handleProofPhotoChange} />
-                {draft.proofPhoto ? 'Replace Photo' : '📷 Take / Upload Proof Photo'}
-              </label>
-              {isUploadingProof && <p>Uploading proof photo...</p>}
+              <div className="proof-upload-actions">
+                <label className="proof-upload-button">
+                  <input disabled={(isDriverMode && !canDriverEdit) || isUploadingProof} type="file" accept="image/*" capture="environment" onChange={handleProofPhotoChange} />
+                  Take Photo
+                </label>
+                <label className="proof-upload-button">
+                  <input disabled={(isDriverMode && !canDriverEdit) || isUploadingProof} type="file" accept="image/*" onChange={handleProofPhotoChange} />
+                  {draft.proofPhoto ? 'Choose Replacement from Photo Library' : 'Choose from Photo Library'}
+                </label>
+              </div>
             </div>
           )}
           {showFailureReason && <label>Failure Reason<textarea disabled={isDriverMode && !canDriverEdit} required value={draft.failureReason} onChange={(event) => updateDraft('failureReason', event.target.value)} rows="3" /></label>}

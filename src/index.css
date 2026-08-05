@@ -1043,6 +1043,11 @@ textarea:focus {
   font-weight: 900;
 }
 
+.proof-upload-actions {
+  display: grid;
+  gap: 8px;
+}
+
 
 .proof-upload-button:hover {
   border-color: #c87536;
