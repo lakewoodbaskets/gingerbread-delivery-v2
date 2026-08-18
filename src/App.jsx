@@ -1207,7 +1207,7 @@ function buildLabelPrintDocument(orders) {
       '<span class="label-customer">' + escapeHtml(order?.customer || '') + '</span>',
       '<p class="label-address">' + escapeHtml(order?.address || '') + '</p>',
       '<span class="label-phone">' + escapeHtml(order?.phone || '') + '</span>',
-      packageCount > 1 ? '<span class="label-package">Package ' + (index + 1) + ' of ' + packageCount + '</span>' : '',
+      packageCount > 1 ? '<span class="label-package">' + (index + 1) + '/' + packageCount + '</span>' : '',
       '</section>',
     ].join(''))
   }).join('')
@@ -1773,7 +1773,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
       driver: getDriverSelectValue(draft.driver),
       deliveryDate: draft.deliveryDate || getTodayDate(),
       priority: getOrderPriority(draft),
-      packageCount: 1,
+      packageCount: getPackageCount(draft),
       status: 'New',
       receiver: showReceiver ? draft.receiver : '',
       failureReason: showFailureReason ? draft.failureReason : '',
@@ -1793,6 +1793,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
           <label className="wide">Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} placeholder="Street, city, state" /></label>
           <label>Driver<select value={getDriverSelectValue(draft.driver)} onChange={(event) => updateDraft('driver', event.target.value)}><option value="">Choose Driver</option>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index}>{getDriverName(driver)}</option>)}</select></label>
           <label>Delivery Date<input type="date" value={draft.deliveryDate || getTodayDate()} onChange={(event) => updateDraft('deliveryDate', event.target.value)} /></label>
+          <label>Number of Packages<input type="number" min="1" step="1" value={getPackageCount(draft)} onChange={(event) => updateDraft('packageCount', event.target.value)} /></label>
           <label className="priority-toggle"><input type="checkbox" checked={getOrderPriority(draft) === 'Priority'} onChange={(event) => updateDraft('priority', event.target.checked ? 'Priority' : 'Normal')} />Priority Order</label>
           <label className="wide">Notes<textarea value={draft.notes} onChange={(event) => updateDraft('notes', event.target.value)} placeholder="Delivery instructions" rows="4" /></label>
           {showReceiver && <label>Receiver Name<input value={draft.receiver} onChange={(event) => updateDraft('receiver', event.target.value)} placeholder="Receiver name" /></label>}
@@ -1808,7 +1809,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
 }
 
 function createQuickEntryRows(count) {
-  return Array.from({ length: count }, () => ({ deliveryDate: '', orderNo: '', customer: '', phone: '', address: '', notes: '' }))
+  return Array.from({ length: count }, () => ({ deliveryDate: '', orderNo: '', customer: '', phone: '', address: '', packageCount: 1, notes: '' }))
 }
 
 function isQuickRowEmpty(row) {
@@ -1822,6 +1823,7 @@ function QuickEntry({ orders = [], onAddOrders, onPrintLabels }) {
     { key: 'customer', label: 'Customer Name' },
     { key: 'phone', label: 'Phone' },
     { key: 'address', label: 'Address' },
+    { key: 'packageCount', label: 'Package Count' },
     { key: 'notes', label: 'Notes' },
   ]
   const requiredFields = ['orderNo', 'customer', 'phone', 'address']
@@ -1954,7 +1956,7 @@ function QuickEntry({ orders = [], onAddOrders, onPrintLabels }) {
         failureReason: '',
         proofPhoto: '',
         priority: 'Normal',
-        packageCount: 1,
+        packageCount: getPackageCount({ packageCount: row.packageCount }),
       })
     })
 
@@ -1991,7 +1993,7 @@ function QuickEntry({ orders = [], onAddOrders, onPrintLabels }) {
           </div>
         </div>
         <div className="quick-grid-wrap">
-          <div className="quick-grid" style={{ gridTemplateColumns: '130px 104px 190px 150px minmax(260px, 1fr) minmax(220px, 0.8fr)' }}>
+          <div className="quick-grid" style={{ gridTemplateColumns: '130px 104px 190px 150px minmax(260px, 1fr) 120px minmax(220px, 0.8fr)' }}>
             {columns.map((column) => <div className="quick-header" key={column.key}>{column.label}</div>)}
             {rows.map((row, rowIndex) => columns.map((column, columnIndex) => (
               <input
@@ -1999,6 +2001,9 @@ function QuickEntry({ orders = [], onAddOrders, onPrintLabels }) {
                 data-quick-row={rowIndex}
                 data-quick-col={columnIndex}
                 key={column.key + '-' + rowIndex}
+                type={column.key === 'packageCount' ? 'number' : 'text'}
+                min={column.key === 'packageCount' ? '1' : undefined}
+                step={column.key === 'packageCount' ? '1' : undefined}
                 value={row[column.key]}
                 onChange={(event) => updateCell(rowIndex, column.key, event.target.value)}
                 onKeyDown={(event) => handleKeyDown(event, rowIndex, columnIndex)}
@@ -2076,7 +2081,8 @@ function quickRowsFromTable(tableRows) {
       customer: hasHeaderRow ? cellValue(row, headerMap.customer) : cellValue(row, 2),
       phone: hasHeaderRow ? cellValue(row, headerMap.phone) : cellValue(row, 3),
       address: hasHeaderRow ? cellValue(row, headerMap.address) : cellValue(row, 4),
-      notes: hasHeaderRow ? cellValue(row, headerMap.notes) : cellValue(row, 5),
+      packageCount: getPackageCount({ packageCount: hasHeaderRow ? cellValue(row, headerMap.packageCount) : cellValue(row, 5) }),
+      notes: hasHeaderRow ? cellValue(row, headerMap.notes) : cellValue(row, 6),
     }))
     .filter((row) => !isQuickRowEmpty(row))
 }
@@ -2088,6 +2094,7 @@ function getQuickEntryHeaderMap(headers) {
     customer: findHeaderIndex(headers, ['customer name', 'customer_name', 'customer', 'name']),
     phone: findHeaderIndex(headers, ['phone', 'phone number', 'customer phone']),
     address: findHeaderIndex(headers, ['address', 'delivery address', 'customer address']),
+    packageCount: findHeaderIndex(headers, ['package_count', 'package count', 'packages', 'number of packages', 'package qty', 'qty']),
     notes: findHeaderIndex(headers, ['notes', 'note', 'delivery notes', 'instructions']),
   }
 }
