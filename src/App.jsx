@@ -125,6 +125,10 @@ function getDriverName(driverValue) {
   return ''
 }
 
+function createClientId(prefix = 'client') {
+  return prefix + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10)
+}
+
 function isValidDispatchDriver(driverValue) {
   const driverName = getDriverName(driverValue).trim()
   return Boolean(driverName) && driverName.toLowerCase() !== 'unassigned'
@@ -352,6 +356,7 @@ function mapDeliveryFromRow(row = {}) {
   return {
     dbId: row.id,
     id: row.order_no || row.id || '',
+    orderSequenceNo: row.order_sequence_no ?? null,
     customer: row.customer_name || '',
     phone: row.phone || '',
     createdAt: row.created_at || '',
@@ -388,6 +393,14 @@ function mapDeliveryToRow(order = {}) {
     completed_at: getCompletedAt(order),
     archived_at: order.archivedAt || order.archived_at || null,
   }
+}
+
+function mapDeliveryToCreatePayload(order = {}) {
+  const row = mapDeliveryToRow(order)
+  delete row.order_no
+  delete row.archived_at
+  delete row.completed_at
+  return row
 }
 
 function mapDriverFromRow(row = {}) {
@@ -434,12 +447,9 @@ function mapSettingsToRow(settings) {
 }
 
 function recordsMatchById(currentRecord = {}, nextRecord = {}) {
-  const currentDbId = currentRecord?.dbId || currentRecord?.id
-  const nextDbId = nextRecord?.dbId || nextRecord?.id
-  if (currentDbId && nextDbId && currentDbId === nextDbId) return true
-  const currentOrderNo = getDisplayOrderNumber(currentRecord)
-  const nextOrderNo = getDisplayOrderNumber(nextRecord)
-  return Boolean(currentOrderNo && nextOrderNo && currentOrderNo === nextOrderNo)
+  const currentIdentity = currentRecord?.dbId || currentRecord?.clientId || ''
+  const nextIdentity = nextRecord?.dbId || nextRecord?.clientId || ''
+  return Boolean(currentIdentity && nextIdentity && currentIdentity === nextIdentity)
 }
 
 function upsertRecord(records = [], nextRecord = {}) {
@@ -890,11 +900,9 @@ function App() {
   async function handleAddOrder(order) {
     try {
       if (!supabase) throw new Error('Missing Supabase environment variables')
-      const { data, error } = await supabase
-        .from('deliveries')
-        .insert(mapDeliveryToRow(order))
-        .select('*')
-        .single()
+      const { data, error } = await supabase.rpc('create_delivery_with_order_number', {
+        payload: mapDeliveryToCreatePayload(order),
+      })
 
       if (error) throw error
       const savedOrder = mapDeliveryFromRow(data)
@@ -915,13 +923,23 @@ function App() {
   async function handleAddOrders(previewOrders, options = {}) {
     try {
       if (!supabase) throw new Error('Missing Supabase environment variables')
-      const { data, error } = await supabase
-        .from('deliveries')
-        .insert(previewOrders.map(mapDeliveryToRow))
-        .select('*')
+      const savedOrders = await Promise.all(previewOrders.map(async (previewOrder) => {
+        if (!getDisplayOrderNumber(previewOrder)) {
+          const { data, error } = await supabase.rpc('create_delivery_with_order_number', {
+            payload: mapDeliveryToCreatePayload(previewOrder),
+          })
+          if (error) throw error
+          return mapDeliveryFromRow(data)
+        }
 
-      if (error) throw error
-      const savedOrders = (data || []).map(mapDeliveryFromRow)
+        const { data, error } = await supabase
+          .from('deliveries')
+          .insert(mapDeliveryToRow(previewOrder))
+          .select('*')
+          .single()
+        if (error) throw error
+        return mapDeliveryFromRow(data)
+      }))
       setOrders((currentOrders) => savedOrders.reduce((nextOrders, savedOrder) => upsertRecord(nextOrders, savedOrder), currentOrders))
       setStatus('All')
       if (!options.stayOnPage) setActiveView('orders')
@@ -937,9 +955,13 @@ function App() {
   async function handleSaveOrder(updatedOrder) {
     try {
       if (!supabase) throw new Error('Missing Supabase environment variables')
-      let query = supabase.from('deliveries').update(mapDeliveryToRow(updatedOrder))
-      query = selectedOrder.dbId ? query.eq('id', selectedOrder.dbId) : query.eq('order_no', selectedOrder.id)
-      const { data, error } = await query.select('*').single()
+      if (!selectedOrder?.dbId) throw new Error('Missing delivery row id.')
+      const { data, error } = await supabase
+        .from('deliveries')
+        .update(mapDeliveryToRow(updatedOrder))
+        .eq('id', selectedOrder.dbId)
+        .select('*')
+        .single()
 
       if (error) throw error
       const savedOrder = mapDeliveryFromRow(data)
@@ -988,12 +1010,14 @@ function App() {
 
     try {
       if (!supabase) throw new Error('Missing Supabase environment variables')
-      let query = supabase.from('deliveries').delete()
-      query = selectedOrder.dbId ? query.eq('id', selectedOrder.dbId) : query.eq('order_no', selectedOrder.id)
-      const { error } = await query
+      if (!selectedOrder?.dbId) throw new Error('Missing delivery row id.')
+      const { error } = await supabase
+        .from('deliveries')
+        .delete()
+        .eq('id', selectedOrder.dbId)
 
       if (error) throw error
-      setOrders((currentOrders) => currentOrders.filter((order) => order.dbId !== selectedOrder.dbId && order.id !== selectedOrder.id))
+      setOrders((currentOrders) => removeRecord(currentOrders, selectedOrder))
       setSelectedOrder(null)
       showToast('Order deleted')
     } catch (error) {
@@ -1106,11 +1130,15 @@ function App() {
     try {
       if (!supabase) throw new Error('Missing Supabase environment variables')
       const savedOrders = await Promise.all(selectedOrders.map(async (order) => {
+        if (!order?.dbId) throw new Error('Missing delivery row id.')
         const orderId = order.dbId || order.id
         const nextOrder = { ...order, driver: assignedDriver, priority: dispatchPriority || getOrderPriority(order), packageCount: getPackageCount({ packageCount: packageCounts[orderId] ?? order.packageCount }), status: 'Out for Delivery' }
-        let query = supabase.from('deliveries').update(mapDeliveryToRow(nextOrder))
-        query = order.dbId ? query.eq('id', order.dbId) : query.eq('order_no', order.id)
-        const { data, error } = await query.select('*').single()
+        const { data, error } = await supabase
+          .from('deliveries')
+          .update(mapDeliveryToRow(nextOrder))
+          .eq('id', order.dbId)
+          .select('*')
+          .single()
         if (error) throw error
         return mapDeliveryFromRow(data)
       }))
@@ -1193,7 +1221,7 @@ function App() {
             onDispatchOrders={handleDispatchOrders}
           />
         )}
-        {!isDriverSession && activeView === 'add' && <AddOrder drivers={safeDrivers} onAddOrder={handleAddOrder} nextOrderNumber={getNextOrderNumber(orders)} />}
+        {!isDriverSession && activeView === 'add' && <AddOrder drivers={safeDrivers} onAddOrder={handleAddOrder} />}
         {!isDriverSession && activeView === 'quick' && <QuickEntry orders={orders} onAddOrders={handleAddOrders} onPrintLabels={handlePrintSlips} />}
         {!isDriverSession && activeView === 'dispatch' && <Dispatch orders={orders} drivers={safeDrivers} onDispatchOrders={handleDispatchOrders} />}
         {!isDriverSession && activeView === 'drivers' && (
@@ -1798,24 +1826,27 @@ function PrintPrompt({ title, printLabel, onPrint, onDismiss }) {
   )
 }
 
-function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
+function AddOrder({ drivers = [], onAddOrder }) {
   const availableDrivers = Array.isArray(drivers) ? drivers.filter(Boolean) : []
-  const emptyOrder = {
-    id: nextOrderNumber,
-    customer: '',
-    phone: '',
-    address: '',
-    driver: '',
-    deliveryDate: getTodayDate(),
-    priority: 'Normal',
-    packageCount: 1,
-    status: 'New',
-    notes: '',
-    receiver: '',
-    failureReason: '',
-    proofPhoto: '',
+  function createEmptyOrder() {
+    return {
+      clientId: createClientId('add-order'),
+      id: '',
+      customer: '',
+      phone: '',
+      address: '',
+      driver: '',
+      deliveryDate: getTodayDate(),
+      priority: 'Normal',
+      packageCount: 1,
+      status: 'New',
+      notes: '',
+      receiver: '',
+      failureReason: '',
+      proofPhoto: '',
+    }
   }
-  const [draft, setDraft] = useState(emptyOrder)
+  const [draft, setDraft] = useState(() => createEmptyOrder())
   const [isSaving, setIsSaving] = useState(false)
   const saveInFlightRef = useRef(false)
   const showReceiver = draft.status === 'Delivered'
@@ -1843,7 +1874,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
         failureReason: showFailureReason ? draft.failureReason : '',
         proofPhoto: showReceiver ? draft.proofPhoto : '',
       })
-      setDraft(emptyOrder)
+      setDraft(createEmptyOrder())
     } finally {
       saveInFlightRef.current = false
       setIsSaving(false)
@@ -1855,7 +1886,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
       <PageHeader eyebrow="Create" title="Add Order" subtitle="Enter delivery details for a new order" />
       <form className="form-card" onSubmit={handleSubmit}>
         <div className="form-grid">
-          <label>Order Number<input value={getDisplayOrderNumber(draft)} onChange={(event) => updateDraft('id', event.target.value)} /></label>
+          <label>Order Number<input value={getDisplayOrderNumber(draft)} placeholder="Auto-generated on save" readOnly /></label>
           <label>Customer name<input value={draft.customer} onChange={(event) => updateDraft('customer', event.target.value)} placeholder="Customer name" /></label>
           <label>Phone<input value={draft.phone} onChange={(event) => updateDraft('phone', event.target.value)} placeholder="Phone number" /></label>
           <label className="wide">Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} placeholder="Street, city, state" /></label>
@@ -1868,7 +1899,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
           {showFailureReason && <label className="wide">Failure Reason<textarea value={draft.failureReason} onChange={(event) => updateDraft('failureReason', event.target.value)} placeholder="Reason delivery failed" rows="3" /></label>}
         </div>
         <div className="form-actions">
-          <button className="secondary-action" type="button" onClick={() => setDraft(emptyOrder)}>Clear</button>
+          <button className="secondary-action" type="button" onClick={() => setDraft(createEmptyOrder())}>Clear</button>
           <button className="primary-action" type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Order'}</button>
         </div>
       </form>
@@ -1877,7 +1908,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
 }
 
 function createQuickEntryRows(count) {
-  return Array.from({ length: count }, () => ({ deliveryDate: '', orderNo: '', customer: '', phone: '', address: '', packageCount: 1, notes: '' }))
+  return Array.from({ length: count }, () => ({ clientId: createClientId('quick-row'), deliveryDate: '', orderNo: '', customer: '', phone: '', address: '', packageCount: 1, notes: '' }))
 }
 
 function isQuickRowEmpty(row) {
@@ -1894,7 +1925,7 @@ function QuickEntry({ orders = [], onAddOrders, onPrintLabels }) {
     { key: 'packageCount', label: 'Package Count' },
     { key: 'notes', label: 'Notes' },
   ]
-  const requiredFields = ['orderNo', 'customer', 'phone', 'address']
+  const requiredFields = ['customer', 'phone', 'address']
   const [rows, setRows] = useState(() => createQuickEntryRows(20))
   const [summary, setSummary] = useState({ imported: 0, skipped: 0 })
   const [fileMessage, setFileMessage] = useState('')
@@ -2014,6 +2045,7 @@ function QuickEntry({ orders = [], onAddOrders, onPrintLabels }) {
       }
 
       ordersToImport.push({
+        clientId: row.clientId || createClientId('quick-order'),
         id: orderNo,
         deliveryDate: normalizeLocalDateString(row.deliveryDate) || getTodayDate(),
         customer: String(row.customer || '').trim(),
@@ -2600,7 +2632,7 @@ function getDriverInitials(driver) {
     .join('') || 'DR'
 }
 
-function parseOrdersCsv(csvText, fallbackOrderNumber) {
+function parseOrdersCsv(csvText) {
   const rows = parseCsvRows(csvText).filter((row) => row.some((cell) => cell.trim()))
 
   if (rows.length < 2) {
@@ -2616,10 +2648,10 @@ function parseOrdersCsv(csvText, fallbackOrderNumber) {
   }
 
   const headerIndex = Object.fromEntries(headers.map((header, index) => [header, index]))
-  const fallbackBase = Number(fallbackOrderNumber.replace(/\D/g, '')) || 1000
-  const orders = rows.slice(1).map((row, index) => {
-    const orderNumber = getDisplayOrderNumber(cellValue(row, headerIndex.order_no)) || String(fallbackBase + index)
+  const orders = rows.slice(1).map((row) => {
+    const orderNumber = getDisplayOrderNumber(cellValue(row, headerIndex.order_no))
     return {
+      clientId: createClientId('csv-order'),
       id: orderNumber,
       deliveryDate: normalizeLocalDateString(cellValue(row, headerIndex.delivery_date)) || getTodayDate(),
       customer: cellValue(row, headerIndex.customer_name),
@@ -2679,13 +2711,4 @@ function parseCsvRows(csvText) {
 function cellValue(row, index) {
   return String(row[index] || '').trim()
 }
-
-function getNextOrderNumber(currentOrders) {
-  const highest = currentOrders.reduce((currentHighest, order) => {
-    const number = Number(getDisplayOrderNumber(order).replace(/\D/g, ''))
-    return Number.isFinite(number) ? Math.max(currentHighest, number) : currentHighest
-  }, 1000)
-  return String(highest + 1)
-}
-
 export default App
