@@ -352,6 +352,21 @@ function logSupabaseError(action, error) {
   console.error("error.status", error?.status)
 }
 
+function isMissingOrderNumberRpcError(error) {
+  const message = String(error?.message || '').toLowerCase()
+  const details = String(error?.details || '').toLowerCase()
+  const hint = String(error?.hint || '').toLowerCase()
+  return error?.code === 'PGRST202'
+    || message.includes('create_delivery_with_order_number')
+    || details.includes('create_delivery_with_order_number')
+    || hint.includes('create_delivery_with_order_number')
+    || message.includes('function') && message.includes('not found')
+}
+
+function getOrderNumberSetupError() {
+  return new Error('Supabase setup needed: run supabase_order_numbers.sql before creating auto-numbered orders.')
+}
+
 function mapDeliveryFromRow(row = {}) {
   return {
     dbId: row.id,
@@ -915,8 +930,9 @@ function App() {
       return savedOrder
     } catch (error) {
       logSupabaseError('Failed to add order', error)
-      showToast('Save failed', 'error')
-      throw error
+      const setupError = isMissingOrderNumberRpcError(error) ? getOrderNumberSetupError() : error
+      showToast(setupError.message || 'Save failed', 'error')
+      throw setupError
     }
   }
 
@@ -928,7 +944,7 @@ function App() {
           const { data, error } = await supabase.rpc('create_delivery_with_order_number', {
             payload: mapDeliveryToCreatePayload(previewOrder),
           })
-          if (error) throw error
+          if (error) throw isMissingOrderNumberRpcError(error) ? getOrderNumberSetupError() : error
           return mapDeliveryFromRow(data)
         }
 
@@ -947,7 +963,7 @@ function App() {
       return savedOrders
     } catch (error) {
       logSupabaseError('Failed to import orders', error)
-      showToast('Save failed', 'error')
+      showToast(error?.message || 'Save failed', 'error')
       throw error
     }
   }
@@ -1848,6 +1864,7 @@ function AddOrder({ drivers = [], onAddOrder }) {
   }
   const [draft, setDraft] = useState(() => createEmptyOrder())
   const [isSaving, setIsSaving] = useState(false)
+  const [saveMessage, setSaveMessage] = useState('')
   const saveInFlightRef = useRef(false)
   const showReceiver = draft.status === 'Delivered'
   const showFailureReason = draft.status === 'Failed'
@@ -1863,6 +1880,7 @@ function AddOrder({ drivers = [], onAddOrder }) {
     try {
       saveInFlightRef.current = true
       setIsSaving(true)
+      setSaveMessage('')
       await onAddOrder({
         ...draft,
         driver: getDriverSelectValue(draft.driver),
@@ -1875,6 +1893,8 @@ function AddOrder({ drivers = [], onAddOrder }) {
         proofPhoto: showReceiver ? draft.proofPhoto : '',
       })
       setDraft(createEmptyOrder())
+    } catch (error) {
+      setSaveMessage(error?.message || 'Save failed. Please try again.')
     } finally {
       saveInFlightRef.current = false
       setIsSaving(false)
@@ -1886,7 +1906,7 @@ function AddOrder({ drivers = [], onAddOrder }) {
       <PageHeader eyebrow="Create" title="Add Order" subtitle="Enter delivery details for a new order" />
       <form className="form-card" onSubmit={handleSubmit}>
         <div className="form-grid">
-          <label>Order Number<input value={getDisplayOrderNumber(draft)} placeholder="Auto-generated on save" readOnly /></label>
+          <label>Order Number<input value="Assigned on save" readOnly /></label>
           <label>Customer name<input value={draft.customer} onChange={(event) => updateDraft('customer', event.target.value)} placeholder="Customer name" /></label>
           <label>Phone<input value={draft.phone} onChange={(event) => updateDraft('phone', event.target.value)} placeholder="Phone number" /></label>
           <label className="wide">Address<input value={draft.address} onChange={(event) => updateDraft('address', event.target.value)} placeholder="Street, city, state" /></label>
@@ -1898,6 +1918,7 @@ function AddOrder({ drivers = [], onAddOrder }) {
           {showReceiver && <label>Receiver Name<input value={draft.receiver} onChange={(event) => updateDraft('receiver', event.target.value)} placeholder="Receiver name" /></label>}
           {showFailureReason && <label className="wide">Failure Reason<textarea value={draft.failureReason} onChange={(event) => updateDraft('failureReason', event.target.value)} placeholder="Reason delivery failed" rows="3" /></label>}
         </div>
+        {saveMessage && <p className="drawer-message error-message">{saveMessage}</p>}
         <div className="form-actions">
           <button className="secondary-action" type="button" onClick={() => setDraft(createEmptyOrder())}>Clear</button>
           <button className="primary-action" type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Order'}</button>
