@@ -444,9 +444,8 @@ function recordsMatchById(currentRecord = {}, nextRecord = {}) {
 
 function upsertRecord(records = [], nextRecord = {}) {
   const safeRecords = Array.isArray(records) ? records : []
-  const existingIndex = safeRecords.findIndex((record) => recordsMatchById(record, nextRecord))
-  if (existingIndex === -1) return [nextRecord, ...safeRecords]
-  return safeRecords.map((record, index) => index === existingIndex ? nextRecord : record)
+  const nonMatchingRecords = safeRecords.filter((record) => !recordsMatchById(record, nextRecord))
+  return [nextRecord, ...nonMatchingRecords]
 }
 
 function removeRecord(records = [], removedRecord = {}) {
@@ -504,7 +503,9 @@ async function loadDeliveries() {
     .order('created_at', { ascending: false })
 
   if (error) throw error
-  return (data || []).map(mapDeliveryFromRow)
+  return (data || [])
+    .map(mapDeliveryFromRow)
+    .reduce((dedupedOrders, order) => dedupedOrders.some((existingOrder) => recordsMatchById(existingOrder, order)) ? dedupedOrders : [...dedupedOrders, order], [])
 }
 
 async function loadDrivers() {
@@ -631,6 +632,9 @@ function App() {
   })
   const toastTimeoutRef = useRef(null)
   const realtimeChannelStatusesRef = useRef({})
+  const realtimeChannelsRef = useRef([])
+  const realtimeReconnectTimeoutRef = useRef(null)
+  const realtimeSubscriptionVersionRef = useRef(0)
 
   function showToast(message, type = 'success') {
     if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current)
@@ -675,98 +679,143 @@ function App() {
 
   const safeDrivers = Array.isArray(drivers) ? drivers.filter(Boolean) : []
 
-  useEffect(() => {
-    async function loadData() {
-      if (!supabase) {
-        console.error('Missing Supabase environment variables')
-        return
-      }
-
-      try {
-        const settingsRows = await loadSettings().catch((error) => {
-          logSupabaseError('Failed to load settings', error)
-          return defaultSettings
-        })
-        const deliveryRows = await loadDeliveries().catch((error) => {
-          logSupabaseError('Failed to load deliveries', error)
-          return []
-        })
-        const driverRows = await loadDrivers().catch((error) => {
-          logSupabaseError('Failed to load drivers', error)
-          return []
-        })
-        setSettings(settingsRows)
-        setOrders(deliveryRows)
-        setDrivers(driverRows)
-      } catch (error) {
-        logSupabaseError('Failed to load Supabase data', error)
-      }
+  async function refreshSupabaseState() {
+    if (!supabase) {
+      console.error('Missing Supabase environment variables')
+      return
     }
 
-    loadData()
+    try {
+      const settingsRows = await loadSettings().catch((error) => {
+        logSupabaseError('Failed to load settings', error)
+        return defaultSettings
+      })
+      const deliveryRows = await loadDeliveries().catch((error) => {
+        logSupabaseError('Failed to load deliveries', error)
+        return []
+      })
+      const driverRows = await loadDrivers().catch((error) => {
+        logSupabaseError('Failed to load drivers', error)
+        return []
+      })
+      setSettings(settingsRows)
+      setOrders(deliveryRows)
+      setDrivers(driverRows)
+    } catch (error) {
+      logSupabaseError('Failed to load Supabase data', error)
+    }
+  }
+
+  function removeRealtimeChannels() {
+    if (!supabase) return
+    realtimeChannelsRef.current.forEach((channel) => {
+      supabase.removeChannel(channel)
+    })
+    realtimeChannelsRef.current = []
+    realtimeChannelStatusesRef.current = {}
+  }
+
+  useEffect(() => {
+    refreshSupabaseState()
   }, [])
 
   useEffect(() => {
     if (!supabase || !session) return undefined
 
     let isActive = true
-    realtimeChannelStatusesRef.current = {}
-    const handleChannelStatus = (channelName, status) => {
-      if (!isActive) return
-      realtimeChannelStatusesRef.current = { ...realtimeChannelStatusesRef.current, [channelName]: status }
-      const statuses = Object.values(realtimeChannelStatusesRef.current)
-      setRealtimeStatus(statuses.some((channelStatus) => ['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(channelStatus)) ? 'reconnecting' : 'connected')
+    const subscriptionVersion = realtimeSubscriptionVersionRef.current + 1
+    realtimeSubscriptionVersionRef.current = subscriptionVersion
+    const isCurrentSubscription = () => isActive && realtimeSubscriptionVersionRef.current === subscriptionVersion
+
+    const clearReconnectTimer = () => {
+      if (realtimeReconnectTimeoutRef.current) {
+        window.clearTimeout(realtimeReconnectTimeoutRef.current)
+        realtimeReconnectTimeoutRef.current = null
+      }
     }
 
-    const deliveriesChannel = supabase
-      .channel('gingerbread-deliveries-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'deliveries' }, (payload) => {
-        if (payload.eventType === 'DELETE') {
-          const removedOrder = mapDeliveryFromRow(payload.old || {})
-          setOrders((currentOrders) => removeRecord(currentOrders, removedOrder))
-          setSelectedOrder((currentOrder) => currentOrder && recordsMatchById(currentOrder, removedOrder) ? null : currentOrder)
-          return
-        }
+    const scheduleReconnect = () => {
+      if (!isCurrentSubscription() || realtimeReconnectTimeoutRef.current) return
+      setRealtimeStatus('reconnecting')
+      realtimeReconnectTimeoutRef.current = window.setTimeout(async () => {
+        realtimeReconnectTimeoutRef.current = null
+        if (!isCurrentSubscription()) return
+        removeRealtimeChannels()
+        await refreshSupabaseState()
+        if (isCurrentSubscription()) subscribeRealtime()
+      }, 1200)
+    }
 
-        const nextOrder = mapDeliveryFromRow(payload.new || {})
-        setOrders((currentOrders) => upsertRecord(currentOrders, nextOrder))
-        setSelectedOrder((currentOrder) => currentOrder && recordsMatchById(currentOrder, nextOrder) ? nextOrder : currentOrder)
-      })
-      .subscribe((status) => handleChannelStatus('deliveries', status))
+    const handleChannelStatus = (channelName, status) => {
+      if (!isCurrentSubscription()) return
+      realtimeChannelStatusesRef.current = { ...realtimeChannelStatusesRef.current, [channelName]: status }
+      const statuses = Object.values(realtimeChannelStatusesRef.current)
+      const isDisconnected = statuses.some((channelStatus) => ['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(channelStatus))
+      setRealtimeStatus(isDisconnected ? 'reconnecting' : 'connected')
+      if (isDisconnected) scheduleReconnect()
+    }
 
-    const driversChannel = supabase
-      .channel('gingerbread-drivers-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, (payload) => {
-        if (payload.eventType === 'DELETE') {
-          const removedDriver = mapDriverFromRow(payload.old || {})
-          setDrivers((currentDrivers) => removeDriverRecord(currentDrivers, removedDriver))
-          return
-        }
+    function subscribeRealtime() {
+      if (!isCurrentSubscription()) return
+      removeRealtimeChannels()
+      const channelSuffix = subscriptionVersion + '-' + Date.now()
 
-        const nextDriver = mapDriverFromRow(payload.new || {})
-        setDrivers((currentDrivers) => upsertDriverRecord(currentDrivers, nextDriver))
-      })
-      .subscribe((status) => handleChannelStatus('drivers', status))
+      const deliveriesChannel = supabase
+        .channel('gingerbread-deliveries-realtime-' + channelSuffix)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'deliveries' }, (payload) => {
+          if (!isCurrentSubscription()) return
+          if (payload.eventType === 'DELETE') {
+            const removedOrder = mapDeliveryFromRow(payload.old || {})
+            setOrders((currentOrders) => removeRecord(currentOrders, removedOrder))
+            setSelectedOrder((currentOrder) => currentOrder && recordsMatchById(currentOrder, removedOrder) ? null : currentOrder)
+            return
+          }
 
-    const settingsChannel = supabase
-      .channel('gingerbread-settings-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, (payload) => {
-        if (payload.eventType === 'DELETE') {
-          setSettings(defaultSettings)
-          return
-        }
+          const nextOrder = mapDeliveryFromRow(payload.new || {})
+          setOrders((currentOrders) => upsertRecord(currentOrders, nextOrder))
+          setSelectedOrder((currentOrder) => currentOrder && recordsMatchById(currentOrder, nextOrder) ? nextOrder : currentOrder)
+        })
+        .subscribe((status) => handleChannelStatus('deliveries', status))
 
-        setSettings(mapSettingsFromRow(payload.new || { id: 1 }))
-      })
-      .subscribe((status) => handleChannelStatus('settings', status))
+      const driversChannel = supabase
+        .channel('gingerbread-drivers-realtime-' + channelSuffix)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, (payload) => {
+          if (!isCurrentSubscription()) return
+          if (payload.eventType === 'DELETE') {
+            const removedDriver = mapDriverFromRow(payload.old || {})
+            setDrivers((currentDrivers) => removeDriverRecord(currentDrivers, removedDriver))
+            return
+          }
+
+          const nextDriver = mapDriverFromRow(payload.new || {})
+          setDrivers((currentDrivers) => upsertDriverRecord(currentDrivers, nextDriver))
+        })
+        .subscribe((status) => handleChannelStatus('drivers', status))
+
+      const settingsChannel = supabase
+        .channel('gingerbread-settings-realtime-' + channelSuffix)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, (payload) => {
+          if (!isCurrentSubscription()) return
+          if (payload.eventType === 'DELETE') {
+            setSettings(defaultSettings)
+            return
+          }
+
+          setSettings(mapSettingsFromRow(payload.new || { id: 1 }))
+        })
+        .subscribe((status) => handleChannelStatus('settings', status))
+
+      realtimeChannelsRef.current = [deliveriesChannel, driversChannel, settingsChannel]
+    }
+
+    subscribeRealtime()
 
     return () => {
       isActive = false
+      clearReconnectTimer()
       realtimeChannelStatusesRef.current = {}
       setRealtimeStatus('connected')
-      supabase.removeChannel(deliveriesChannel)
-      supabase.removeChannel(driversChannel)
-      supabase.removeChannel(settingsChannel)
+      removeRealtimeChannels()
     }
   }, [session])
 
@@ -849,7 +898,7 @@ function App() {
 
       if (error) throw error
       const savedOrder = mapDeliveryFromRow(data)
-      setOrders((currentOrders) => [savedOrder, ...currentOrders])
+      setOrders((currentOrders) => upsertRecord(currentOrders, savedOrder))
       setStatus('All')
       setSelectedOrder(null)
       setActiveView('orders')
@@ -873,7 +922,7 @@ function App() {
 
       if (error) throw error
       const savedOrders = (data || []).map(mapDeliveryFromRow)
-      setOrders((currentOrders) => [...savedOrders, ...currentOrders])
+      setOrders((currentOrders) => savedOrders.reduce((nextOrders, savedOrder) => upsertRecord(nextOrders, savedOrder), currentOrders))
       setStatus('All')
       if (!options.stayOnPage) setActiveView('orders')
       showToast('Order added')
@@ -918,13 +967,13 @@ function App() {
             setOrders(refreshedDeliveries)
           } catch (refreshError) {
             logSupabaseError('Failed to refresh deliveries after completion', refreshError)
-            setOrders((currentOrders) => currentOrders.map((order) => order.dbId === savedOrder.dbId || order.id === selectedOrder.id ? savedOrder : order))
+            setOrders((currentOrders) => upsertRecord(currentOrders, savedOrder))
           }
         }, 2000)
         return { driverCompletedDelivery: true }
       }
 
-      setOrders((currentOrders) => currentOrders.map((order) => order.dbId === savedOrder.dbId || order.id === selectedOrder.id ? savedOrder : order))
+      setOrders((currentOrders) => upsertRecord(currentOrders, savedOrder))
       showToast('Order saved')
       return { driverCompletedDelivery: false }
     } catch (error) {
@@ -964,7 +1013,7 @@ function App() {
         .single()
 
       if (error) throw error
-      setDrivers((currentDrivers) => [...currentDrivers, mapDriverFromRow(data)])
+      setDrivers((currentDrivers) => upsertDriverRecord(currentDrivers, mapDriverFromRow(data)))
       showToast('Driver saved')
     } catch (error) {
       logSupabaseError('Failed to add driver', error)
@@ -988,7 +1037,7 @@ function App() {
 
       if (error) throw error
       const savedDriver = mapDriverFromRow(data)
-      setDrivers((currentDrivers) => currentDrivers.map((driver) => driver?.dbId === savedDriver?.dbId || (driver?.name || '') === originalName ? savedDriver : driver))
+      setDrivers((currentDrivers) => upsertDriverRecord(currentDrivers.filter((driver) => (driver?.name || '') !== originalName || driver?.dbId === savedDriver?.dbId), savedDriver))
       setOrders((currentOrders) => currentOrders.map((order) => getDriverName(order.driver) === originalName ? { ...order, driver: getDriverName(savedDriver) } : order))
       showToast('Driver saved')
     } catch (error) {
@@ -1066,7 +1115,7 @@ function App() {
         return mapDeliveryFromRow(data)
       }))
 
-      setOrders((currentOrders) => currentOrders.map((order) => savedOrders.find((savedOrder) => savedOrder.dbId === order.dbId || savedOrder.id === order.id) || order))
+      setOrders((currentOrders) => savedOrders.reduce((nextOrders, savedOrder) => upsertRecord(nextOrders, savedOrder), currentOrders))
       showToast('Orders sent out')
       if (window.confirm('Print delivery slips now?')) handlePrintSlips(savedOrders)
       return true
@@ -1546,6 +1595,8 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
   const [saveMessage, setSaveMessage] = useState('')
   const [validationMessage, setValidationMessage] = useState('')
   const [isUploadingProof, setIsUploadingProof] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const saveInFlightRef = useRef(false)
   const isDriverMode = mode === 'driver'
   const canDriverEdit = !isDriverMode || order?.status === 'Out for Delivery'
   const driverStatusOptions = ['Out for Delivery', 'Delivered', 'Failed']
@@ -1563,6 +1614,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
 
   async function handleSubmit(event) {
     event.preventDefault()
+    if (saveInFlightRef.current) return
 
     if (isDriverMode && !canDriverEdit) {
       setValidationMessage('This delivery can no longer be changed.')
@@ -1590,6 +1642,8 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
     }
 
     try {
+      saveInFlightRef.current = true
+      setIsSaving(true)
       const saveResult = await onSave({
         ...draft,
         id: isDriverMode ? order.id : getDisplayOrderNumber(draft.id),
@@ -1609,6 +1663,9 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
       window.setTimeout(onClose, saveResult?.driverCompletedDelivery ? 2000 : 1000)
     } catch (error) {
       setValidationMessage(error?.message || 'Failed to save changes.')
+    } finally {
+      saveInFlightRef.current = false
+      setIsSaving(false)
     }
   }
 
@@ -1701,7 +1758,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
         {validationMessage && <p className="drawer-message error-message">{validationMessage}</p>}
         {saveMessage && <p className="drawer-message saved-message">{saveMessage}</p>}
         <div className="drawer-actions">
-          {canDriverEdit && <button className="primary-action" type="submit">Save Changes</button>}
+          {canDriverEdit && <button className="primary-action" type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Changes'}</button>}
           {!isDriverMode && onPrintSlip && <button className="secondary-action" type="button" onClick={() => onPrintSlip(order)}>Print Slip</button>}
           {!isDriverMode && onDelete && <button className="danger-action" type="button" onClick={onDelete}>Delete Order</button>}
           <button className="secondary-action" type="button" onClick={handleOpenMaps}>Open Maps</button>
@@ -1759,6 +1816,8 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
     proofPhoto: '',
   }
   const [draft, setDraft] = useState(emptyOrder)
+  const [isSaving, setIsSaving] = useState(false)
+  const saveInFlightRef = useRef(false)
   const showReceiver = draft.status === 'Delivered'
   const showFailureReason = draft.status === 'Failed'
 
@@ -1768,18 +1827,27 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
 
   async function handleSubmit(event) {
     event.preventDefault()
-    await onAddOrder({
-      ...draft,
-      driver: getDriverSelectValue(draft.driver),
-      deliveryDate: draft.deliveryDate || getTodayDate(),
-      priority: getOrderPriority(draft),
-      packageCount: getPackageCount(draft),
-      status: 'New',
-      receiver: showReceiver ? draft.receiver : '',
-      failureReason: showFailureReason ? draft.failureReason : '',
-      proofPhoto: showReceiver ? draft.proofPhoto : '',
-    })
-    setDraft(emptyOrder)
+    if (saveInFlightRef.current) return
+
+    try {
+      saveInFlightRef.current = true
+      setIsSaving(true)
+      await onAddOrder({
+        ...draft,
+        driver: getDriverSelectValue(draft.driver),
+        deliveryDate: draft.deliveryDate || getTodayDate(),
+        priority: getOrderPriority(draft),
+        packageCount: getPackageCount(draft),
+        status: 'New',
+        receiver: showReceiver ? draft.receiver : '',
+        failureReason: showFailureReason ? draft.failureReason : '',
+        proofPhoto: showReceiver ? draft.proofPhoto : '',
+      })
+      setDraft(emptyOrder)
+    } finally {
+      saveInFlightRef.current = false
+      setIsSaving(false)
+    }
   }
 
   return (
@@ -1801,7 +1869,7 @@ function AddOrder({ drivers = [], onAddOrder, nextOrderNumber }) {
         </div>
         <div className="form-actions">
           <button className="secondary-action" type="button" onClick={() => setDraft(emptyOrder)}>Clear</button>
-          <button className="primary-action" type="submit">Save Order</button>
+          <button className="primary-action" type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Order'}</button>
         </div>
       </form>
     </section>
@@ -1831,6 +1899,7 @@ function QuickEntry({ orders = [], onAddOrders, onPrintLabels }) {
   const [summary, setSummary] = useState({ imported: 0, skipped: 0 })
   const [fileMessage, setFileMessage] = useState('')
   const [saving, setSaving] = useState(false)
+  const saveInFlightRef = useRef(false)
   const [printPromptOrders, setPrintPromptOrders] = useState([])
   const existingOrderNumbers = useMemo(() => new Set((Array.isArray(orders) ? orders : []).map((order) => String(order?.id || '').trim().toLowerCase()).filter(Boolean)), [orders])
   const duplicateOrderNumbers = useMemo(() => {
@@ -1928,6 +1997,7 @@ function QuickEntry({ orders = [], onAddOrders, onPrintLabels }) {
   }
 
   async function handleSaveAll() {
+    if (saveInFlightRef.current) return
     const ordersToImport = []
     let skipped = 0
 
@@ -1964,12 +2034,14 @@ function QuickEntry({ orders = [], onAddOrders, onPrintLabels }) {
     if (!ordersToImport.length) return
 
     try {
+      saveInFlightRef.current = true
       setSaving(true)
       const savedOrders = await onAddOrders(ordersToImport, { stayOnPage: true })
       setSummary({ imported: ordersToImport.length, skipped })
       if (Array.isArray(savedOrders) && savedOrders.length) setPrintPromptOrders(savedOrders)
       else setRows(createQuickEntryRows(20))
     } finally {
+      saveInFlightRef.current = false
       setSaving(false)
     }
   }
@@ -2230,6 +2302,8 @@ function Drivers({ drivers = [], onAddDriver, onUpdateDriver, onDeleteDriver, on
   const emptyDriver = { name: '', pin: '', status: 'Active', route: 'Available' }
   const [draft, setDraft] = useState(emptyDriver)
   const [editingName, setEditingName] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+  const saveInFlightRef = useRef(false)
 
   function updateDraft(field, value) {
     setDraft((currentDraft) => ({ ...currentDraft, [field]: value }))
@@ -2242,6 +2316,7 @@ function Drivers({ drivers = [], onAddDriver, onUpdateDriver, onDeleteDriver, on
 
   async function handleSubmit(event) {
     event.preventDefault()
+    if (saveInFlightRef.current) return
     const driver = {
       name: (draft?.name || '').trim(),
       pin: (draft?.pin || '').trim(),
@@ -2251,9 +2326,16 @@ function Drivers({ drivers = [], onAddDriver, onUpdateDriver, onDeleteDriver, on
 
     if (!driver?.name || !driver?.pin) return
 
-    if (editingName) await onUpdateDriver(editingName, driver)
-    else await onAddDriver(driver)
-    resetForm()
+    try {
+      saveInFlightRef.current = true
+      setIsSaving(true)
+      if (editingName) await onUpdateDriver(editingName, driver)
+      else await onAddDriver(driver)
+      resetForm()
+    } finally {
+      saveInFlightRef.current = false
+      setIsSaving(false)
+    }
   }
 
   function handleEdit(driver) {
@@ -2274,7 +2356,7 @@ function Drivers({ drivers = [], onAddDriver, onUpdateDriver, onDeleteDriver, on
         </div>
         <div className="form-actions">
           <button className="secondary-action" type="button" onClick={resetForm}>Clear</button>
-          <button className="primary-action" type="submit">{editingName ? 'Save Driver' : 'Add Driver'}</button>
+          <button className="primary-action" type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : editingName ? 'Save Driver' : 'Add Driver'}</button>
         </div>
       </form>
       <div className="driver-grid">
@@ -2398,6 +2480,8 @@ function Settings({ settings, backupInfo = {}, onSaveSettings, onCreateBackup, o
   const [message, setMessage] = useState('')
   const [backupMessage, setBackupMessage] = useState('')
   const [backupFileName, setBackupFileName] = useState(backupInfo.fileName || '')
+  const [isSaving, setIsSaving] = useState(false)
+  const saveInFlightRef = useRef(false)
   const restoreInputRef = useRef(null)
 
   function updateDraft(field, value) {
@@ -2407,6 +2491,7 @@ function Settings({ settings, backupInfo = {}, onSaveSettings, onCreateBackup, o
 
   async function handleSubmit(event) {
     event.preventDefault()
+    if (saveInFlightRef.current) return
     const nextSettings = {
       id: draft.id || 1,
       companyName: draft.companyName || 'Gingerbread Delivery',
@@ -2421,9 +2506,16 @@ function Settings({ settings, backupInfo = {}, onSaveSettings, onCreateBackup, o
       return
     }
 
-    await onSaveSettings(nextSettings)
-    setDraft(nextSettings)
-    setMessage('Saved ✓')
+    try {
+      saveInFlightRef.current = true
+      setIsSaving(true)
+      await onSaveSettings(nextSettings)
+      setDraft(nextSettings)
+      setMessage('Saved ✓')
+    } finally {
+      saveInFlightRef.current = false
+      setIsSaving(false)
+    }
   }
 
   function handleLogoChange(event) {
@@ -2479,7 +2571,7 @@ function Settings({ settings, backupInfo = {}, onSaveSettings, onCreateBackup, o
         <label>Automatically archive delivered orders after X days<input type="number" min="1" value={draft.archiveDeliveredAfterDays || 7} onChange={(event) => updateDraft('archiveDeliveredAfterDays', event.target.value)} /></label>
         <label>Permanently delete archived orders after X days<input type="number" min="1" value={draft.deleteArchivedAfterDays || 30} onChange={(event) => updateDraft('deleteArchivedAfterDays', event.target.value)} /></label>
         {message && <p className="drawer-message saved-message">{message}</p>}
-        <button className="primary-action" type="submit">Save Settings</button>
+        <button className="primary-action" type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Settings'}</button>
       </form>
       <section className="form-card settings-card backup-card">
         <div className="section-heading">
