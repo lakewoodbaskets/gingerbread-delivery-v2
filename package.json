@@ -1,15 +1,18 @@
 {
   "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "retention:preview": "node scripts/retention-backup.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "latest",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "@supabase/supabase-js": "latest"
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.11",
     "@vitejs/plugin-react": "^6.0.3",
     "vite": "^8.1.2"
   }

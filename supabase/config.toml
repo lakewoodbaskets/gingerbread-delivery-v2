@@ -1,0 +1,6 @@
+project_id = "gingerbread-delivery-v2"
+
+[functions.delivery-retention]
+# Authentication is enforced by x-retention-secret inside the function.
+# No public/anon key can authorize this endpoint.
+verify_jwt = false
