@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from './supabaseClient'
 import { sendDeliveredSMS } from './smsService'
+import { checkOfficeLogin } from './officeAuth'
+import { compressProofPhoto } from './proofPhoto'
 
 const initialOrders = [
   {
@@ -442,7 +444,7 @@ function mapSettingsFromRow(row = {}) {
   return {
     id: row.id || null,
     companyName: row.company_name || defaultSettings.companyName,
-    officePin: row.office_pin || defaultSettings.officePin,
+    officePin: row.office_pin == null ? '' : String(row.office_pin),
     companyLogoName: row.logo_url || defaultSettings.companyLogoName,
     archiveDeliveredAfterDays: row.archive_after_days ?? defaultSettings.archiveDeliveredAfterDays,
     deleteArchivedAfterDays: row.delete_after_days ?? defaultSettings.deleteArchivedAfterDays,
@@ -505,7 +507,8 @@ async function loadSettings() {
     .maybeSingle()
 
   if (error) throw error
-  return mapSettingsFromRow(data || { id: 1 })
+  if (!data || !String(data.office_pin ?? '').trim()) throw new Error('Office settings are unavailable')
+  return mapSettingsFromRow(data)
 }
 
 async function saveSettings(settings) {
@@ -646,6 +649,7 @@ function App() {
   const [printPromptOrder, setPrintPromptOrder] = useState(null)
   const [session, setSession] = useState(null)
   const [settings, setSettings] = useState(defaultSettings)
+  const [officeSettingsStatus, setOfficeSettingsStatus] = useState('loading')
   const [toast, setToast] = useState(null)
   const [realtimeStatus, setRealtimeStatus] = useState('connected')
   const [backupInfo, setBackupInfo] = useState(() => {
@@ -660,6 +664,7 @@ function App() {
   const realtimeChannelsRef = useRef([])
   const realtimeReconnectTimeoutRef = useRef(null)
   const realtimeSubscriptionVersionRef = useRef(0)
+  const realtimeReconnectAttemptsRef = useRef(0)
 
   function showToast(message, type = 'success') {
     if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current)
@@ -705,7 +710,9 @@ function App() {
   const safeDrivers = Array.isArray(drivers) ? drivers.filter(Boolean) : []
 
   async function refreshSupabaseState() {
+    setOfficeSettingsStatus('loading')
     if (!supabase) {
+      setOfficeSettingsStatus('error')
       console.error('Missing Supabase environment variables')
       return
     }
@@ -713,19 +720,23 @@ function App() {
     try {
       const settingsRows = await loadSettings().catch((error) => {
         logSupabaseError('Failed to load settings', error)
-        return defaultSettings
+        setOfficeSettingsStatus('error')
+        return null
       })
+      if (settingsRows) {
+        setSettings(settingsRows)
+        setOfficeSettingsStatus('ready')
+      }
       const deliveryRows = await loadDeliveries().catch((error) => {
         logSupabaseError('Failed to load deliveries', error)
-        return []
+        return null
       })
       const driverRows = await loadDrivers().catch((error) => {
         logSupabaseError('Failed to load drivers', error)
-        return []
+        return null
       })
-      setSettings(settingsRows)
-      setOrders(deliveryRows)
-      setDrivers(driverRows)
+      if (deliveryRows) setOrders(deliveryRows)
+      if (driverRows) setDrivers(driverRows)
     } catch (error) {
       logSupabaseError('Failed to load Supabase data', error)
     }
@@ -768,7 +779,7 @@ function App() {
         removeRealtimeChannels()
         await refreshSupabaseState()
         if (isCurrentSubscription()) subscribeRealtime()
-      }, 1200)
+      }, Math.min(60000, 5000 * 2 ** Math.min(realtimeReconnectAttemptsRef.current++, 4)))
     }
 
     const handleChannelStatus = (channelName, status) => {
@@ -776,6 +787,7 @@ function App() {
       realtimeChannelStatusesRef.current = { ...realtimeChannelStatusesRef.current, [channelName]: status }
       const statuses = Object.values(realtimeChannelStatusesRef.current)
       const isDisconnected = statuses.some((channelStatus) => ['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(channelStatus))
+      if (statuses.length === 3 && statuses.every((channelStatus) => channelStatus === 'SUBSCRIBED')) realtimeReconnectAttemptsRef.current = 0
       setRealtimeStatus(isDisconnected ? 'reconnecting' : 'connected')
       if (isDisconnected) scheduleReconnect()
     }
@@ -822,11 +834,12 @@ function App() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, (payload) => {
           if (!isCurrentSubscription()) return
           if (payload.eventType === 'DELETE') {
-            setSettings(defaultSettings)
+            setOfficeSettingsStatus('error')
             return
           }
 
           setSettings(mapSettingsFromRow(payload.new || { id: 1 }))
+          setOfficeSettingsStatus(payload.new?.office_pin ? 'ready' : 'error')
         })
         .subscribe((status) => handleChannelStatus('settings', status))
 
@@ -1207,7 +1220,7 @@ function App() {
   const showDrawer = selectedOrder && (activeView === 'orders' || activeView === 'history')
 
   if (!session) {
-    return <LoginScreen drivers={safeDrivers} officePin={settings.officePin} companyName={settings.companyName} onLogin={setSession} />
+    return <LoginScreen drivers={safeDrivers} settingsStatus={officeSettingsStatus} onRetry={refreshSupabaseState} companyName={settings.companyName} onLogin={setSession} />
   }
 
   return (
@@ -1373,22 +1386,32 @@ function escapeHtml(value) {
     .replace(/'/g, '&#039;')
 }
 
-function LoginScreen({ drivers, officePin, companyName, onLogin }) {
+function LoginScreen({ drivers, settingsStatus, onRetry, companyName, onLogin }) {
   const [loginMode, setLoginMode] = useState('office')
   const [pin, setPin] = useState('')
   const [message, setMessage] = useState('')
+  const [isCheckingOffice, setIsCheckingOffice] = useState(false)
+  const officeLoginInFlightRef = useRef(false)
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
     setMessage('')
 
     if (loginMode === 'office') {
-      if (pin === String(officePin || '7933')) {
+      if (officeLoginInFlightRef.current) return
+      officeLoginInFlightRef.current = true
+      setIsCheckingOffice(true)
+      // Check fresh settings so an outage or a PIN change in another office
+      // session cannot turn a cached value into a misleading authentication result.
+      const result = await checkOfficeLogin(pin, loadSettings)
+      officeLoginInFlightRef.current = false
+      setIsCheckingOffice(false)
+      if (result.ok) {
         onLogin({ role: 'office' })
         return
       }
 
-      setMessage('Invalid office PIN.')
+      setMessage(result.message)
       return
     }
 
@@ -1412,11 +1435,11 @@ function LoginScreen({ drivers, officePin, companyName, onLogin }) {
           </div>
         </div>
         <div className="login-options">
-          <button className={loginMode === 'office' ? 'counter-card active' : 'counter-card'} type="button" onClick={() => setLoginMode('office')}>
+          <button className={loginMode === 'office' ? 'counter-card active' : 'counter-card'} type="button" disabled={isCheckingOffice} onClick={() => setLoginMode('office')}>
             <span>Office Login</span>
             <strong>Office</strong>
           </button>
-          <button className={loginMode === 'driver' ? 'counter-card active' : 'counter-card'} type="button" onClick={() => setLoginMode('driver')}>
+          <button className={loginMode === 'driver' ? 'counter-card active' : 'counter-card'} type="button" disabled={isCheckingOffice} onClick={() => setLoginMode('driver')}>
             <span>Driver Login</span>
             <strong>Driver</strong>
           </button>
@@ -1424,7 +1447,9 @@ function LoginScreen({ drivers, officePin, companyName, onLogin }) {
         <form className="form-card login-form" onSubmit={handleSubmit}>
           <label>{loginMode === 'office' ? 'Office PIN' : 'Driver PIN'}<input value={pin} onChange={(event) => setPin(event.target.value)} placeholder="Enter PIN" autoFocus /></label>
           {message && <p className="drawer-message error-message">{message}</p>}
-          <button className="primary-action" type="submit">Login</button>
+          {loginMode === 'office' && settingsStatus !== 'ready' && <p className="drawer-message error-message">{settingsStatus === 'loading' ? 'Loading office login...' : 'Office login is temporarily unavailable. Please retry when service is restored.'}</p>}
+          {loginMode === 'office' && settingsStatus === 'error' && <button className="secondary-action" type="button" onClick={onRetry}>Retry Connection</button>}
+          <button className="primary-action" type="submit" disabled={loginMode === 'office' && (settingsStatus !== 'ready' || isCheckingOffice)}>{isCheckingOffice ? 'Connecting...' : 'Login'}</button>
         </form>
       </section>
     </main>
@@ -1729,12 +1754,12 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
     setIsUploadingProof(true)
 
     try {
-      const safeOrderNumber = (getDisplayOrderNumber(draft) || getDisplayOrderNumber(order) || 'delivery').replace(/[^a-zA-Z0-9-_]/g, '-')
-      const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-')
-      const filePath = safeOrderNumber + '/' + Date.now() + '-' + safeFileName
+      if (!order?.dbId) throw new Error('Save the order before adding a proof photo.')
+      const photo = await compressProofPhoto(file)
+      const filePath = order.dbId + '/' + crypto.randomUUID() + '.jpg'
       const { error: uploadError } = await supabase.storage
         .from('delivery-proofs')
-        .upload(filePath, file, { contentType: file.type, upsert: true })
+        .upload(filePath, photo, { contentType: 'image/jpeg', upsert: false, cacheControl: '31536000' })
 
       if (uploadError) throw uploadError
 
@@ -1783,7 +1808,7 @@ function OrderDrawer({ drivers = [], order, mode = 'office', onClose, onSave, on
           {showProofFields && (
             <div className="delivery-proof-field">
               <span>Proof Photo</span>
-              {draft.proofPhoto && <img className="proof-thumbnail" src={draft.proofPhoto} alt="Delivery proof" />}
+              {draft.proofPhoto && <img className="proof-thumbnail" src={draft.proofPhoto} alt="Delivery proof" loading="lazy" decoding="async" />}
               <div className="proof-upload-actions">
                 <label className="proof-upload-button">
                   <input disabled={(isDriverMode && !canDriverEdit) || isUploadingProof} type="file" accept="image/*" capture="environment" onChange={handleProofPhotoChange} />

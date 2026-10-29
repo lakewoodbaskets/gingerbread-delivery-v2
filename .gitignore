@@ -1,4 +1,6 @@
 node_modules
+retention-backups/
+supabase/.temp/
 dist
 .env
 .env.local
