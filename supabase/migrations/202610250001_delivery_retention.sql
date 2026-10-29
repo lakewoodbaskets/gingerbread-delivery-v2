@@ -104,9 +104,10 @@ create function public.delivery_retention_preview() returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare archive_days integer; delete_days integer; report jsonb;
 begin
-  select archive_after_days, delete_after_days into archive_days, delete_days from public.settings where id = 1;
+  if (select count(*) from public.settings) <> 1 then raise exception 'Exactly one settings row is required'; end if;
+  select archive_after_days, delete_after_days into archive_days, delete_days from public.settings;
   if archive_days is null or delete_days is null or archive_days < 1 or delete_days < archive_days then
-    raise exception 'Valid retention settings (id=1) are required';
+    raise exception 'Valid retention settings are required';
   end if;
   if not exists (select 1 from public.delivery_retention_control where id and storage_origin ~ '^https://[^/]+$') then
     raise exception 'Configure storage_origin before previewing retention';
@@ -172,7 +173,8 @@ declare archive_days integer; delete_days integer; archived_count integer; delet
 begin
   perform 1 from public.delivery_retention_control where id and enabled and lease_token = run_id and lease_until > now() for update;
   if not found then raise exception 'Retention is disabled or the worker lease expired'; end if;
-  select archive_after_days, delete_after_days into archive_days, delete_days from public.settings where id = 1;
+  if (select count(*) from public.settings) <> 1 then raise exception 'Exactly one settings row is required'; end if;
+  select archive_after_days, delete_after_days into archive_days, delete_days from public.settings;
   if archive_days is null or archive_days < 1 or delete_days is null or delete_days < archive_days then raise exception 'Invalid retention settings'; end if;
   with selected as (select id from public.deliveries where status in ('Delivered', 'Failed') and archived_at is null
     and completed_at < now() - make_interval(days => archive_days) order by completed_at limit least(greatest(batch_size, 1), 200) for update skip locked)

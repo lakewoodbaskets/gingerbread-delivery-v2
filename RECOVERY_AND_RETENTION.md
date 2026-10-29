@@ -96,7 +96,9 @@ Previously incurred egress is not reversed by deleting files.
 
 ## Policy and safety
 
-- Read `public.settings` row 1 on every run. Archive after archive_after_days
+- Read the sole `public.settings` row on every run (production uses text ID
+  `main`; numeric IDs also work). Missing or multiple settings rows stop cleanup.
+  Archive after archive_after_days
   (normally 7), delete after delete_after_days (normally 30), both measured from
   completed_at. Thirty days means thirty elapsed 24-hour periods, not thirty
   additional days after archive. The hourly schedule may add up to an hour,

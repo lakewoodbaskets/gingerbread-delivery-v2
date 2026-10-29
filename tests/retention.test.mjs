@@ -167,3 +167,12 @@ test('historical signature support remains safe when the column is absent', () =
   await start()
   assert.equal((await batch()).deliveries_deleted, 1)
 }))
+
+test('production text settings id main works without modifying settings', () => isolated(async () => {
+  await db.exec("alter table settings alter column id type text using id::text; update settings set id = 'main'")
+  await delivery(1, 40)
+  assert.equal((await preview()).deliveries.length, 1)
+  await start()
+  assert.equal((await batch()).deliveries_deleted, 1)
+  assert.equal((await db.query('select id from settings')).rows[0].id, 'main')
+}))
