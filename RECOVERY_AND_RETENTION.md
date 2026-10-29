@@ -181,3 +181,32 @@ the worker finishes its current bounded claimed batch. Backups are the recovery
 source for permanently deleted rows/files. Restoring files may require clearing
 the corresponding deleted queue tombstone in an owner-reviewed recovery before
 reattaching a URL; do not use ordinary app restore to undo a cleanup blindly.
+
+## Approved first-cleanup execution
+
+The owner explicitly accepted the risk of retaining only the verified local
+backup for the October 29, 2026 first cleanup. Do not infer that waiver for
+future recoveries. The first cleanup removed exactly 441 approved deliveries
+and 447 approved files. The 210 retained deliveries, 4 drivers, settings and
+104 retained storage objects were independently checked; retained business
+fields and storage metadata were unchanged (normal archived_at updates are
+expected under the 7-day policy).
+
+`202610290001_approved_cleanup_scope.sql` adds optional exact-ID/path allowlists.
+They reject deletion or queue claims outside a specifically approved first-run
+inventory. Ordinary scheduled retention uses NULL allowlists only after first
+cleanup verification. Both allowlists must be set/cleared together.
+
+For an explicitly approved initial cleanup only, use
+`node scripts/execute-approved-retention.mjs PRIVATE_BACKUP_DIRECTORY --execute-approved`
+with server credentials in the local process. It revalidates backup checksums
+and the live inventory, records a protected-data baseline, executes bounded
+batches through the existing worker, verifies every removed file using the
+Storage info API, and pauses cleanup on exit. It creates private receipts beside
+the backup; never commit these files. Independently compare retained storage
+metadata against a before-run snapshot before enabling ordinary scheduling.
+
+To verify actual cron invocation without waiting an hour, temporarily use
+`* * * * *`, observe a successful cron run, pg_net HTTP 200 and a matching
+finished retention run, then immediately set the intended `17 * * * *` schedule.
+Do not treat creating a cron job or a successful HTTP enqueue as execution proof.
