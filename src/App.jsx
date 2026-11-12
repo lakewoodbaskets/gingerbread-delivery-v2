@@ -1308,8 +1308,10 @@ function buildLabelPrintDocument(orders) {
     const packageCount = getPackageCount(order)
     return Array.from({ length: packageCount }, (_, index) => [
       '<section class="zebra-label">',
+      '<div class="label-order-block">',
       '<div class="label-top"><span class="label-kicker">ORDER #</span><span class="label-date">' + escapeHtml(formatLabelDeliveryDate(order)) + '</span></div>',
       '<strong class="label-order-number">' + escapeHtml(getDisplayOrderNumber(order)) + '</strong>',
+      '</div>',
       '<span class="label-customer">' + escapeHtml(order?.customer || '') + '</span>',
       '<p class="label-address">' + escapeHtml(order?.address || '') + '</p>',
       '<span class="label-phone">' + escapeHtml(order?.phone || '') + '</span>',
@@ -1333,7 +1335,8 @@ function buildLabelPrintDocument(orders) {
     '.label-kicker, .label-date, .label-order-number, .label-customer, .label-address, .label-phone, .label-package { display: block; color: #000000; letter-spacing: 0; overflow: visible; text-overflow: clip; }' +
     '.label-kicker { font-size: 0.085in; font-weight: 900; line-height: 1; white-space: nowrap; }' +
     '.label-date { position: absolute; top: 0.16in; right: 0.085in; max-width: 0.82in; text-align: right; font-size: 0.17in; font-weight: 900; line-height: 0.9; white-space: nowrap; }' +
-    '.label-order-number { margin-top: 0.004in; padding-right: 0.86in; font-size: 0.215in; font-weight: 900; line-height: 0.88; white-space: nowrap; }' +
+    '.label-order-block { width: calc(100% - 0.86in); outline: 1px solid #000000; }' +
+    '.label-order-number { margin-top: 0.004in; font-size: 0.215in; font-weight: 900; line-height: 0.88; white-space: nowrap; }' +
     '.label-customer, .label-address { overflow: visible; font-size: 0.205in; font-weight: 900; line-height: 0.92; white-space: normal; overflow-wrap: break-word; word-break: normal; }' +
     '.label-customer { margin-top: 0.026in; }' +
     '.label-address { margin: 0.016in 0 0; }' +
@@ -1357,15 +1360,17 @@ function buildLabelPrintDocument(orders) {
     'var pkg=label.querySelector(".label-package");' +
     'var bodySize=19.7;' +
     'var orderSize=20.6;' +
+    'order.style.lineHeight=(orderSize*0.88)+"px";' +
     'var phoneSize=13.9;' +
     'var date=label.querySelector(".label-date");' +
     'var dateSize=16.3;' +
     'var packageSize=8;' +
     'function apply(){customer.style.fontSize=bodySize+"px";address.style.fontSize=bodySize+"px";order.style.fontSize=orderSize+"px";if(phone)phone.style.fontSize=phoneSize+"px";if(date)date.style.fontSize=dateSize+"px";if(pkg)pkg.style.fontSize=packageSize+"px";}' +
     'apply();' +
+    'while(order.scrollWidth>order.clientWidth&&orderSize>1){orderSize-=0.5;apply();}' +
     'while(phone&&(label.scrollHeight>label.clientHeight||label.scrollWidth>label.clientWidth)&&phoneSize>9){phoneSize-=0.5;if(pkg&&packageSize>6)packageSize-=0.25;apply();}' +
     'while((label.scrollHeight>label.clientHeight||label.scrollWidth>label.clientWidth)&&bodySize>9){bodySize-=0.5;if(orderSize>15)orderSize-=0.25;if(dateSize>13)dateSize-=0.2;apply();}' +
-    'while(order.scrollWidth>label.clientWidth&&orderSize>10){orderSize-=0.5;apply();}' +
+    'while(order.scrollWidth>order.clientWidth&&orderSize>1){orderSize-=0.5;apply();}' +
     '}' +
     'function fitAll(){document.querySelectorAll(".zebra-label").forEach(fitLabel);}' +
     'if(document.fonts&&document.fonts.ready){document.fonts.ready.then(fitAll);}else{fitAll();}' +
@@ -2301,6 +2306,7 @@ function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
     .flatMap((group) => group.orders)
   const visibleDispatchIds = visibleDispatchOrders.map((order) => order.dbId || order.id)
   const allVisibleSelected = visibleDispatchIds.length > 0 && visibleDispatchIds.every((orderId) => selectedIds.includes(orderId))
+  const selectedCount = newOrders.filter((order) => selectedIds.includes(order.dbId || order.id)).length
 
   function toggleOrder(orderId) {
     setSelectedIds((currentIds) => currentIds.includes(orderId) ? currentIds.filter((id) => id !== orderId) : [...currentIds, orderId])
@@ -2350,6 +2356,7 @@ function Dispatch({ orders = [], drivers = [], onDispatchOrders }) {
       <PageHeader eyebrow="Office" title="Dispatch" subtitle="Assign New orders and send them out for delivery" />
       <div className="dispatch-panel">
         <div className="dispatch-toolbar">
+          <output className="dispatch-selection-count" aria-live="polite">{selectedCount} {selectedCount === 1 ? 'order' : 'orders'} selected.</output>
           <label className="dispatch-select-all"><input type="checkbox" checked={allVisibleSelected} disabled={!visibleDispatchIds.length} onChange={toggleAll} />Select all New orders</label>
           <label className="select-field"><span>Driver</span><select value={selectedDriver} onChange={(event) => setSelectedDriver(event.target.value)}><option value="">Choose Driver</option>{availableDrivers.map((driver, index) => <option key={driver?.dbId || driver?.name || index} value={getDriverName(driver)}>{getDriverName(driver)}</option>)}</select></label>
           <label className="priority-toggle dispatch-priority-toggle"><input type="checkbox" checked={selectedPriority === 'Priority'} onChange={(event) => setSelectedPriority(event.target.checked ? 'Priority' : 'Normal')} />Priority Order</label>

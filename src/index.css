@@ -1427,6 +1427,13 @@ textarea:focus {
   padding: 18px;
 }
 
+.dispatch-selection-count {
+  grid-column: 1 / -1;
+  color: #1f1712;
+  font-size: 1rem;
+  font-weight: 850;
+}
+
 .dispatch-select-all {
   display: flex;
   align-items: center;
